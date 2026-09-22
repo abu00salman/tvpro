@@ -1,0 +1,12 @@
+TV Pro v3
+
+1) تم تعديل مشغل الموقع ليجرب بوابات التوافق ليس فقط عند Network/CORS، بل كذلك عند أخطاء Format وDecode.
+2) تم حذف النص المضلل الذي يقترح Chrome على iPhone.
+3) أرفق TVPRO-GATEWAY-v3.js وهو Worker محدث:
+   - إصلاح تتبع عنوان URL النهائي بعد redirects.
+   - إعادة كتابة HLS playlists والـ URI attributes.
+   - Range/206 للأفلام والمسلسلات.
+   - HEAD ودعم Content-Type وContent-Range.
+   - هيدرز تشخيص X-TVPro-*.
+
+مهم: هذا يزيد نسبة الملفات التي تعمل بسبب HTTP/CORS/redirects، لكنه لا يحول MKV/HEVC/AV1 غير المدعوم. تحويل الترميز يحتاج media server/FFmpeg وليس Cloudflare Worker عادي.
