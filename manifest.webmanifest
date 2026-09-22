@@ -9,7 +9,7 @@
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#080A0D",
-  "theme_color": "#080A0D",
+  "theme_color": "#0057FF",
   "categories": ["entertainment", "video"],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
