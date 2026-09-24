@@ -65,6 +65,39 @@ function rewriteManifest(text, sourceURL, workerURL) {
   }).join('\n');
 }
 
+/** Reads only the first chunk to tell an HLS playlist from a media stream. A playlist is buffered
+ *  (it must be rewritten); anything else is re-assembled and streamed through untouched, so an
+ *  endless live .ts stream is never buffered. Panels label playlists inconsistently (text/plain,
+ *  octet-stream, extension-less redirect targets), so the body, not the label, decides. */
+async function sniffPlaylist(body) {
+  const reader = body.getReader();
+  const first = await reader.read();
+  const head = first.done ? new Uint8Array() : first.value;
+  const isPlaylist = new TextDecoder().decode(head.slice(0, 64)).replace(/^\uFEFF/, '').trimStart().startsWith('#EXTM3U');
+  if (!isPlaylist) {
+    const stream = new ReadableStream({
+      start(c) { if (head.length) c.enqueue(head); if (first.done) c.close(); },
+      async pull(c) { const r = await reader.read(); if (r.done) c.close(); else c.enqueue(r.value); },
+      cancel(reason) { return reader.cancel(reason); },
+    });
+    return { text: null, stream };
+  }
+  const parts = [head];
+  let size = head.length;
+  for (let done = first.done; !done;) {
+    const r = await reader.read();
+    done = r.done;
+    if (done) break;
+    parts.push(r.value);
+    size += r.value.length;
+    if (size > MAX_PLAYLIST_BYTES) { await reader.cancel(); return { text: null, stream: null, tooLarge: true }; }
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.length; }
+  return { text: new TextDecoder().decode(all), stream: null };
+}
+
 /** Follows redirects manually: every hop is checked against the block list and the port list,
  *  and the final URL is kept so relative segment paths resolve against the real streaming server. */
 async function fetchValidated(url, init, left = MAX_REDIRECTS) {
@@ -104,21 +137,20 @@ async function handleProxy(request, workerURL) {
   }
 
   const ct = (upstream.headers.get('content-type') || '').toLowerCase();
-  // Decide by the *final* URL and content type only: a .m3u8 that redirects to an endless .ts
-  // live stream must be streamed through, not buffered.
-  const isM3U8 = /mpegurl/.test(ct) || isPlaylistPath(finalURL);
-  if (isM3U8 && upstream.ok && request.method !== 'HEAD') {
-    const buf = await upstream.arrayBuffer();
-    if (buf.byteLength > MAX_PLAYLIST_BYTES) return fail(origin, 413, 'playlist-too-large');
-    const text = new TextDecoder().decode(buf);
-    if (text.trimStart().startsWith('#EXTM3U')) {
-      return new Response(rewriteManifest(text, finalURL.toString(), workerURL), {
+  const namedPlaylist = /mpegurl/.test(ct) || isPlaylistPath(finalURL) || isPlaylistPath(target);
+  let body = upstream.body;
+  if (upstream.ok && body && request.method !== 'HEAD' && (namedPlaylist || ct.startsWith('text/') || ct === '' || ct.includes('octet-stream'))) {
+    const sniffed = await sniffPlaylist(body);
+    if (sniffed.tooLarge) return fail(origin, 413, 'playlist-too-large');
+    if (sniffed.text !== null) {
+      return new Response(rewriteManifest(sniffed.text, finalURL.toString(), workerURL), {
         status: 200,
         headers: cors(origin, { 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store', 'X-TVPro-Final-URL': finalURL.toString() }),
       });
     }
     // Panels answer expired/blocked accounts with an HTML or text page and status 200.
-    return fail(origin, 502, 'upstream-not-a-playlist');
+    if (ct.startsWith('text/html') || ct.includes('mpegurl') || (namedPlaylist && ct.startsWith('text/'))) { sniffed.stream.cancel(); return fail(origin, 502, 'upstream-not-a-playlist'); }
+    body = sniffed.stream;
   }
 
   const out = new Headers(cors(origin, { 'Content-Type': ct || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-TVPro-Final-URL': finalURL.toString() }));
@@ -127,7 +159,7 @@ async function handleProxy(request, workerURL) {
     if (v) out.set(n, v);
   }
   if (request.method === 'HEAD') { upstream.body?.cancel(); return new Response(null, { status: upstream.status, headers: out }); }
-  return new Response(upstream.body, { status: upstream.status, headers: out });
+  return new Response(body, { status: upstream.status, headers: out });
 }
 
 export default { async fetch(request) {
