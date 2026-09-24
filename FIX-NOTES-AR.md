@@ -27,5 +27,5 @@
 
 ### النشر (مطلوب لتفعيل إصلاح البوابات)
 - Cloudflare: `npx wrangler deploy` (الملف `wrangler.toml` يشير إلى `cloudflare-worker.js`).
-- Deno Deploy: الصق محتوى `tvpro-gateway-deno.ts` في مشروع `great-fox-5853` ثم اضغط Deploy.
+- Deno Deploy: التطبيق `tvpro-gateway` (https://tvpro-gateway.rmz.deno.net) مربوط بالمستودع ويتحدّث تلقائيًا (Entrypoint: `tvpro-gateway-deno.ts`)، وهو أول بوابة في قائمة الموقع.
 - إذا كان `gateway.tv-pro.app` بوابة منفصلة، فحدّثها بأحد الملفين.
