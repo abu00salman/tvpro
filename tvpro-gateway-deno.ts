@@ -69,7 +69,7 @@ function validateTarget(raw) {
 function corsHeaders(extra = {}) {
   return {
     'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, X-TVPro-Error',
     ...extra,
   };
 }
@@ -77,7 +77,7 @@ function corsHeaders(extra = {}) {
 /** Movies and episodes are fetched in byte ranges; Safari refuses to play a file at all unless
  *  the 206 response carries Content-Range and Content-Length. Pass the range metadata through. */
 function passthroughHeaders(upstream, contentType) {
-  const headers = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'public, max-age=30' };
+  const headers = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
   for (const name of ['content-length', 'content-range', 'accept-ranges']) {
     const value = upstream.headers.get(name);
     if (value) headers[name] = value;
@@ -91,20 +91,23 @@ function proxied(workerOrigin, target) {
 }
 
 /** Rewrites URI lines/attributes inside an HLS playlist so every reference routes back through this gateway. */
+function absolute(ref, base) {
+  try { return new URL(ref, base).toString(); } catch { return null; }
+}
 function rewriteM3U8(text, sourceUrl, workerOrigin) {
-  const base = new URL(sourceUrl);
-  return text.split('\n').map((line) => {
+  return text.split(/\r?\n/).map((line) => {
     const trimmed = line.trim();
     if (!trimmed) return line;
     if (trimmed.startsWith('#')) {
-      // EXT-X-KEY, EXT-X-MAP and EXT-X-MEDIA all carry a URI="..." attribute that also needs rewriting.
-      const m = line.match(/URI="([^"]+)"/);
-      if (!m) return line;
-      const abs = new URL(m[1], base).toString();
-      return line.replace(m[1], proxied(workerOrigin, abs));
+      // EXT-X-KEY, EXT-X-MAP and EXT-X-MEDIA all carry a URI="..." attribute that also needs rewriting
+      // (a line can carry more than one, and a malformed one is left as-is rather than failing the list).
+      return line.replace(/URI="([^"]+)"/g, (all, uri) => {
+        const abs = absolute(uri, sourceUrl);
+        return abs ? `URI="${proxied(workerOrigin, abs)}"` : all;
+      });
     }
-    const abs = new URL(trimmed, base).toString();
-    return proxied(workerOrigin, abs);
+    const abs = absolute(trimmed, sourceUrl);
+    return abs ? proxied(workerOrigin, abs) : line;
   }).join('\n');
 }
 
@@ -127,10 +130,11 @@ async function fetchValidated(url, init, redirectsLeft = MAX_REDIRECTS) {
  *  So the gateway presents the viewer's own browser identity, exactly as a direct request would,
  *  rather than announcing itself. Nothing else from the viewer is forwarded (no cookies, no referrer). */
 const FALLBACK_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
-function upstreamHeaders(request) {
-  const headers = { 'User-Agent': request.headers.get('user-agent') || FALLBACK_UA, 'Accept': '*/*' };
+function upstreamHeaders(request, target) {
+  const headers = { 'User-Agent': request.headers.get('user-agent') || FALLBACK_UA, 'Accept': '*/*', 'Accept-Encoding': 'identity' };
   const range = request.headers.get('range');
-  if (range) headers['Range'] = range; // lets the player seek inside movies
+  // Lets the player seek inside movies. Never sent for playlists: some panels answer with a truncated 206 list.
+  if (range && !/\.m3u8?$/i.test(target.pathname)) headers['Range'] = range;
   return headers;
 }
 
@@ -171,18 +175,24 @@ export default {
     let upstream, finalUrl;
     try {
       // Never log `target` — it carries the person's IPTV username/password in query form.
-      ({ res: upstream, finalUrl } = await fetchValidated(parsed, { headers: upstreamHeaders(request) }));
+      ({ res: upstream, finalUrl } = await fetchValidated(parsed, { headers: upstreamHeaders(request, parsed) }));
     } catch {
       return new Response('Upstream fetch failed', { status: 502, headers: corsHeaders() });
     }
 
     const contentType = upstream.headers.get('content-type') || '';
-    const looksLikePlaylist = /\.m3u8?(\?|$)/i.test(finalUrl.pathname) || /\.m3u8?(\?|$)/i.test(parsed.pathname) || contentType.includes('mpegurl');
+    // Decide by the *final* URL and content type only: panels often redirect a channel's .m3u8 to an
+    // endless .ts live stream, which must be streamed through rather than buffered.
+    const looksLikePlaylist = /\.m3u8?$/i.test(finalUrl.pathname) || contentType.toLowerCase().includes('mpegurl');
 
-    if (looksLikePlaylist) {
+    if (looksLikePlaylist && upstream.ok && request.method !== 'HEAD') {
       const buf = await upstream.arrayBuffer();
       if (buf.byteLength > MAX_PLAYLIST_BYTES) return new Response('Playlist too large', { status: 413, headers: corsHeaders() });
       const text = new TextDecoder().decode(buf);
+      // Expired or blocked accounts get an HTML/text page with status 200; report it as a failure so the player moves on.
+      if (!text.trimStart().startsWith('#EXTM3U')) {
+        return new Response('Upstream did not return a playlist', { status: 502, headers: corsHeaders({ 'X-TVPro-Error': 'upstream-not-a-playlist' }) });
+      }
       const rewritten = rewriteM3U8(text, finalUrl.toString(), reqUrl.origin);
       return new Response(rewritten, {
         status: upstream.status,
@@ -191,7 +201,8 @@ export default {
     }
 
     // Segments and everything else (.ts/.m4s/.aac/init.mp4/key files/…): stream through unchanged.
-    return new Response(upstream.body, {
+    if (request.method === 'HEAD') upstream.body?.cancel();
+    return new Response(request.method === 'HEAD' ? null : upstream.body, {
       status: upstream.status,
       headers: corsHeaders(passthroughHeaders(upstream, contentType)),
     });
