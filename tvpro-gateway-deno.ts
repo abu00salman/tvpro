@@ -111,6 +111,39 @@ function rewriteM3U8(text, sourceUrl, workerOrigin) {
   }).join('\n');
 }
 
+/** Reads only the first chunk to tell an HLS playlist from a media stream. A playlist is buffered
+ *  (it must be rewritten); anything else is re-assembled and streamed through untouched, so an
+ *  endless live .ts stream is never buffered. Panels label playlists inconsistently (text/plain,
+ *  octet-stream, extension-less redirect targets), so the body, not the label, decides. */
+async function sniffPlaylist(body) {
+  const reader = body.getReader();
+  const first = await reader.read();
+  const head = first.done ? new Uint8Array() : first.value;
+  const isPlaylist = new TextDecoder().decode(head.slice(0, 64)).replace(/^\uFEFF/, '').trimStart().startsWith('#EXTM3U');
+  if (!isPlaylist) {
+    const stream = new ReadableStream({
+      start(c) { if (head.length) c.enqueue(head); if (first.done) c.close(); },
+      async pull(c) { const r = await reader.read(); if (r.done) c.close(); else c.enqueue(r.value); },
+      cancel(reason) { return reader.cancel(reason); },
+    });
+    return { text: null, stream };
+  }
+  const parts = [head];
+  let size = head.length;
+  for (let done = first.done; !done;) {
+    const r = await reader.read();
+    done = r.done;
+    if (done) break;
+    parts.push(r.value);
+    size += r.value.length;
+    if (size > MAX_PLAYLIST_BYTES) { await reader.cancel(); return { text: null, stream: null, tooLarge: true }; }
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.length; }
+  return { text: new TextDecoder().decode(all), stream: null };
+}
+
 /** Follows redirects manually so every hop — not just the first URL — is checked against the block list. */
 async function fetchValidated(url, init, redirectsLeft = MAX_REDIRECTS) {
   const res = await fetch(url.toString(), { ...init, redirect: 'manual' });
@@ -181,23 +214,25 @@ export default {
     }
 
     const contentType = upstream.headers.get('content-type') || '';
-    // Decide by the *final* URL and content type only: panels often redirect a channel's .m3u8 to an
-    // endless .ts live stream, which must be streamed through rather than buffered.
-    const looksLikePlaylist = /\.m3u8?$/i.test(finalUrl.pathname) || contentType.toLowerCase().includes('mpegurl');
+    const ct = contentType.toLowerCase();
+    const namedPlaylist = /\.m3u8?$/i.test(finalUrl.pathname) || /\.m3u8?$/i.test(parsed.pathname) || ct.includes('mpegurl');
 
-    if (looksLikePlaylist && upstream.ok && request.method !== 'HEAD') {
-      const buf = await upstream.arrayBuffer();
-      if (buf.byteLength > MAX_PLAYLIST_BYTES) return new Response('Playlist too large', { status: 413, headers: corsHeaders() });
-      const text = new TextDecoder().decode(buf);
+    if (upstream.ok && upstream.body && request.method !== 'HEAD' && (namedPlaylist || ct.startsWith('text/') || ct === '' || ct.includes('octet-stream'))) {
+      const sniffed = await sniffPlaylist(upstream.body);
+      if (sniffed.tooLarge) return new Response('Playlist too large', { status: 413, headers: corsHeaders() });
+      if (sniffed.text !== null) {
+        const rewritten = rewriteM3U8(sniffed.text, finalUrl.toString(), reqUrl.origin);
+        return new Response(rewritten, {
+          status: 200,
+          headers: corsHeaders({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' }),
+        });
+      }
       // Expired or blocked accounts get an HTML/text page with status 200; report it as a failure so the player moves on.
-      if (!text.trimStart().startsWith('#EXTM3U')) {
+      if (ct.startsWith('text/html') || ct.includes('mpegurl') || (namedPlaylist && ct.startsWith('text/'))) {
+        sniffed.stream.cancel();
         return new Response('Upstream did not return a playlist', { status: 502, headers: corsHeaders({ 'X-TVPro-Error': 'upstream-not-a-playlist' }) });
       }
-      const rewritten = rewriteM3U8(text, finalUrl.toString(), reqUrl.origin);
-      return new Response(rewritten, {
-        status: upstream.status,
-        headers: corsHeaders({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' }),
-      });
+      return new Response(sniffed.stream, { status: upstream.status, headers: corsHeaders(passthroughHeaders(upstream, contentType)) });
     }
 
     // Segments and everything else (.ts/.m4s/.aac/init.mp4/key files/…): stream through unchanged.
