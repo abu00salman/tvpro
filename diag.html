@@ -140,6 +140,36 @@
     card.appendChild(btn);
   }
 
+  async function accountInfo(secret, log) {
+    if (!secret || secret.type !== 'xtream') return;
+    const api = serverOrigin(secret.server) + '/player_api.php?username=' + encodeURIComponent(secret.username) + '&password=' + encodeURIComponent(secret.password);
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = '<h3><span>حالة الاشتراك</span><span class="badge muted">…</span></h3><div class="steps"></div>';
+    $('results').appendChild(card);
+    const set = (cls, text, html) => { const b = card.querySelector('.badge'); b.className = 'badge ' + cls; b.textContent = text; card.querySelector('.steps').innerHTML = html; };
+    for (const gw of GATEWAYS.slice().reverse()) {
+      const res = await timed(via(gw, api), {}, 10000);
+      if (res.err || !res.r.ok) continue;
+      let j; try { j = await res.r.json(); } catch { continue; }
+      const u = (j && j.user_info) || {};
+      const exp = u.exp_date ? new Date(Number(u.exp_date) * 1000).toLocaleDateString('ar') : 'غير محدد';
+      const active = Number(u.active_cons || 0), max = Number(u.max_connections || 0);
+      const fmts = Array.isArray(u.allowed_output_formats) ? u.allowed_output_formats.join(', ') : '-';
+      const ok = u.auth == 1 && String(u.status).toLowerCase() === 'active';
+      const full = max > 0 && active >= max;
+      set(ok && !full ? 'ok' : 'bad', ok ? (full ? 'الاتصالات ممتلئة' : 'فعّال') : 'غير فعّال',
+        '<div class="step">الحالة: <b>' + esc(u.status || '-') + '</b></div>' +
+        '<div class="step">ينتهي في: <b>' + esc(exp) + '</b></div>' +
+        '<div class="step ' + (full ? 'bad' : '') + '">الاتصالات المستخدمة الآن: <b>' + active + ' من ' + (max || '?') + '</b></div>' +
+        '<div class="step">الصيغ المسموحة: <b dir="ltr">' + esc(fmts) + '</b></div>' +
+        (full ? '<div class="step bad">كل الاتصالات مستخدمة، فالسيرفر يرفض أي تشغيل جديد للقنوات. أغلق التطبيقات والأجهزة الأخرى التي تستخدم نفس الاشتراك وانتظر دقيقة.</div>' : ''));
+      log.push('[account] status=' + u.status + ' auth=' + u.auth + ' exp=' + exp + ' connections=' + active + '/' + max + ' formats=' + fmts, '');
+      return;
+    }
+    set('warn', 'تعذّر', '<div class="step muted">تعذّر قراءة حالة الاشتراك من السيرفر.</div>');
+    log.push('[account] unavailable', '');
+  }
+
   let lastLog = [];
   function renderReport() { $('report').value = lastLog.join('\n'); $('reportWrap').style.display = ''; }
 
@@ -159,7 +189,8 @@
       lastLog = ['TV Pro diag ' + new Date().toISOString(), 'UA: ' + navigator.userAgent, 'Channel: ' + ch.number + ' ' + ch.name, 'Source: ' + redact(src) + '  (port ' + (srcUrl.port || 'default') + ')', ''];
       let custom = null; try { custom = JSON.parse(localStorage.getItem('tvpro:settings') || '{}').proxyUrl || null; } catch {}
       const routes = [['مباشر (بدون بوابة)', src], ...[custom, ...GATEWAYS].filter((g, i, a) => g && a.indexOf(g) === i).map((g) => [g.replace(/^https:\/\//, ''), via(g, src)])];
-      await Promise.all(routes.map(async ([name, url]) => {
+      await accountInfo(secret, lastLog);
+      for (const [name, url] of routes) {
         const card = document.createElement('div'); card.className = 'card';
         card.innerHTML = '<h3><span class="host">' + esc(name) + '</span><span class="badge muted">…</span></h3><div class="steps"></div>';
         $('results').appendChild(card);
@@ -171,7 +202,7 @@
           try { await testRoute(name, url, card, log); } catch (e) { log.push('  ✗ ' + (e.message || e)); }
         }
         lastLog.push(...log, '');
-      }));
+      }
       $('status').innerHTML += '<br><span class="muted">انتهى الفحص.</span>';
       renderReport();
     } catch (e) {
