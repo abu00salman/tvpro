@@ -4,7 +4,7 @@
  * - Hashed build assets (/_next/static): cache first (immutable).
  * - Everything cross-origin (streams, playlists, posters, guide data) is never touched or cached.
  */
-const VERSION = 'tvpro-shell-v13';
+const VERSION = 'tvpro-shell-v14';
 const SCOPE = self.registration.scope;
 const SHELL = [SCOPE, SCOPE + 'manifest.webmanifest', SCOPE + 'icons/icon.svg', SCOPE + 'icons/icon-192.png'];
 

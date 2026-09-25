@@ -46,7 +46,7 @@
 
 <script>
 (() => {
-  const GATEWAYS = ['https://gateway.tv-pro.app', 'https://tvpro-gateway.abu00salman-r.workers.dev', 'https://great-fox-5853.abu00salmanr.deno.net', 'https://tvpro-gateway.rmz.deno.net'];
+  const GATEWAYS = ['https://great-fox-5853.abu00salmanr.deno.net', 'https://tvpro-gateway.rmz.deno.net', 'https://gateway.tv-pro.app', 'https://tvpro-gateway.abu00salman-r.workers.dev'];
   const $ = (id) => document.getElementById(id);
   let secrets = [];
   const redact = (s) => { let out = String(s); for (const x of secrets) if (x && x.length > 1) out = out.split(x).join('***').split(encodeURIComponent(x)).join('***'); return out; };
@@ -147,7 +147,7 @@
     card.innerHTML = '<h3><span>حالة الاشتراك</span><span class="badge muted">…</span></h3><div class="steps"></div>';
     $('results').appendChild(card);
     const set = (cls, text, html) => { const b = card.querySelector('.badge'); b.className = 'badge ' + cls; b.textContent = text; card.querySelector('.steps').innerHTML = html; };
-    for (const gw of GATEWAYS.slice().reverse()) {
+    for (const gw of GATEWAYS) {
       const res = await timed(via(gw, api), {}, 10000);
       if (res.err || !res.r.ok) continue;
       let j; try { j = await res.r.json(); } catch { continue; }
