@@ -282,34 +282,47 @@ await scenario('HTTPS source refused by CORS → one gateway fallback, then play
   await ctx.close(); return { outcome: o, providerLiveRequests: streamRequests(/^\/live\//), gatewayUsed: [...new Set(hits)], steps: log.filter((e) => e.ev !== 'account').map((e) => e.ev + (e.err ? ':' + e.err : '') + '@' + e.route) };
 });
 
-await scenario('demo: "Try the demo" builds 7 channels / 7 movies / 7 series; an Internet Archive episode plays', async () => {
+await scenario('demo: 7 channels / 7 movies / 7 real series with artwork; an episode plays; an old demo is upgraded in place', async () => {
   const ctx = await browser.newContext({ serviceWorkers: 'block' });
   const iaReq = [];
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url());
     if (u.origin === 'https://tv-pro.app') { let p = u.pathname.endsWith('/') ? u.pathname + 'index.html' : u.pathname; const f = path.join(ROOT, decodeURIComponent(p)); return existsSync(f) ? route.fulfill({ body: readFileSync(f), contentType: TYPES[path.extname(f)] || 'application/octet-stream' }) : route.fulfill({ status: 404 }); }
+    const h = { 'access-control-allow-origin': '*' };
     if (u.host === 'archive.org') {
       iaReq.push(u.pathname);
-      const h = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
-      if (u.pathname === '/advancedsearch.php') { const slug = u.searchParams.get('q').replace(/[^a-z]/gi, '').slice(-10); return route.fulfill({ headers: h, body: JSON.stringify({ response: { docs: [1, 2].map((n) => ({ identifier: slug + n, title: slug + ' episode ' + n })) } }) }); }
-      if (u.pathname.startsWith('/metadata/')) { const id = decodeURIComponent(u.pathname.slice(10)); return route.fulfill({ headers: h, body: JSON.stringify({ metadata: { title: id }, files: [{ name: id + '_512kb.mp4', format: 'h.264', size: '1000' }] }) }); }
-      if (u.pathname.startsWith('/download/')) { const r = file('movie.mp4', 'video/mp4', route.request().headers().range); const hh = { 'access-control-allow-origin': '*' }; r.headers.forEach((v, k) => { hh[k] = v; }); return route.fulfill({ status: r.status, headers: hh, body: Buffer.from(await r.arrayBuffer()) }); }
+      if (u.pathname === '/advancedsearch.php') { const slug = (/title:\(\"?([^")]+)/.exec(u.searchParams.get('q')) || [, 'x'])[1].replace(/\W+/g, '_'); return route.fulfill({ headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ response: { docs: [1, 2, 3].map((n) => ({ identifier: slug + '_' + n, title: slug.replace(/_/g, ' ') + ' - Episode ' + n })) } }) }); }
+      if (u.pathname.startsWith('/metadata/')) { const id = decodeURIComponent(u.pathname.slice(10)); return route.fulfill({ headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ metadata: { title: id }, files: [{ name: id + '_512kb.mp4', format: 'h.264', size: '1000' }] }) }); }
+      if (u.pathname.startsWith('/download/')) { const r = file('movie.mp4', 'video/mp4', route.request().headers().range); const hh = { ...h }; r.headers.forEach((v, k) => { hh[k] = v; }); return route.fulfill({ status: r.status, headers: hh, body: Buffer.from(await r.arrayBuffer()) }); }
+      if (u.pathname.startsWith('/services/img/')) return route.fulfill({ headers: h, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"/>' });
       return route.fulfill({ status: 404 });
     }
+    if (/\.m3u8$/.test(u.pathname)) return route.fulfill({ headers: { ...h, 'content-type': 'application/vnd.apple.mpegurl' }, body: '#EXTM3U\n' });
     return route.abort('blockedbyclient');
   });
   const page = await ctx.newPage();
+  const libCounts = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('tvpro'); r.onsuccess = () => { const q = r.result.transaction('libraries').objectStore('libraries').get('demo'); q.onsuccess = () => res(q.result && [q.result.channels.length, q.result.movies.length, q.result.series.length, q.result.demoVersion]); }; }));
   await page.goto('https://tv-pro.app/');
   await page.getByText('Try the demo').click();
-  await page.waitForFunction(() => !/#\/?$|^$/.test(location.hash) || document.body.innerText.includes('Live'), null, { timeout: 30000 }).catch(() => {});
+  await page.getByText('Live').first().waitFor({ timeout: 40000 }).catch(() => {});
   await page.waitForTimeout(1500);
-  const counts = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('tvpro'); r.onsuccess = () => { const q = r.result.transaction('libraries').objectStore('libraries').get('demo'); q.onsuccess = () => res(q.result && [q.result.channels.length, q.result.movies.length, q.result.series.length]); }; }));
-  assert.deepEqual(counts, [7, 7, 7]);
-  await page.goto('https://tv-pro.app/#/series'); await page.getByText('Popeye').first().click();
-  await page.getByText(/episode 1/).first().click();
+  const counts = await libCounts();
+  assert.deepEqual(counts, [7, 7, 7, 3]);
+  await page.goto('https://tv-pro.app/#/series');
+  await page.waitForTimeout(1500);
+  const cards = await page.$$eval('img', (i) => i.filter((x) => x.src.includes('archive.org/services/img/')).length);
+  assert.ok(cards >= 7, 'series artwork shown: ' + cards);
+  await page.getByText('Sherlock Holmes').first().click();
+  await page.getByText(/Episode 1/).first().click();
   const o = await outcome(page);
   assert.equal(o, 'playing');
-  await ctx.close(); return { counts, episode: o, archiveRequests: iaReq.length };
+  // an older demo library (as stored before this change) is upgraded automatically on the next visit
+  await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('tvpro'); r.onsuccess = () => { const tx = r.result.transaction('libraries', 'readwrite'); tx.objectStore('libraries').put({ playlistId: 'demo', channels: [{ id: 'demo-c1' }], movies: [], series: [] }); tx.oncomplete = res; }; }));
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload(); await page.waitForTimeout(9000);
+  const upgraded = await libCounts();
+  assert.deepEqual(upgraded, [7, 7, 7, 3]);
+  await ctx.close(); return { counts, seriesArtwork: cards, episode: o, upgraded };
 });
 
 await browser.close();

@@ -84,42 +84,83 @@ if(IOS)document.addEventListener("click",function(e){var bs=document.querySelect
  try{if(pip){if(v.webkitSetPresentationMode&&v.webkitSupportsPresentationMode&&v.webkitSupportsPresentationMode("picture-in-picture"))v.webkitSetPresentationMode(v.webkitPresentationMode==="picture-in-picture"?"inline":"picture-in-picture");else if(v.requestPictureInPicture)v.requestPictureInPicture();else return}else{if(!v.webkitEnterFullscreen)return;v.webkitEnterFullscreen()}e.preventDefault();e.stopPropagation()}catch(x){}return}},true)})();
 
 ;(function(){if(typeof window==="undefined"||window.__tvproBuildDemo)return;
-/* Demo library: free and legal content only. 7 channels, 7 movies, 7 series.
-   - Channels: public reference streams and broadcasters' own free public streams.
-   - Movies/series: Blender open movies (CC BY) and public-domain titles from the Internet Archive.
-   Internet Archive file links are resolved on the viewer's device when the demo is added, and anything that does
-   not resolve is left out, so every title shown has a real playable file behind it. */
-var IA="https://archive.org";
+/* TV Pro demo library: 7 channels, 7 movies, 7 series of free and legal content, verified on the viewer's device.
+   - Channels: broadcasters' own free public streams. Each candidate playlist is fetched once; the first 7 that answer are kept.
+   - Movies/series: public-domain titles from the Internet Archive, resolved to each item's H.264 MP4. Titles that do not
+     resolve are skipped, so nothing broken is listed. Requests the browser cannot make directly (CORS) go through a gateway. */
+var V=3,P="demo",IA="https://archive.org";
+var GW=["https://great-fox-5853.abu00salmanr.deno.net","https://tvpro-gateway.rmz.deno.net"];
+function logo(text,bg,fg,sub){var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" rx="44" fill="'+bg+'"/>'+
+ '<text x="100" y="'+(sub?104:116)+'" font-family="-apple-system,Segoe UI,Tahoma,Arial,sans-serif" font-size="'+(text.length>6?38:52)+'" font-weight="800" fill="'+fg+'" text-anchor="middle">'+text+'</text>'+
+ (sub?'<text x="100" y="146" font-family="-apple-system,Segoe UI,Tahoma,Arial,sans-serif" font-size="24" font-weight="600" fill="'+fg+'" fill-opacity=".8" text-anchor="middle">'+sub+'</text>':'')+'</svg>';
+ return"data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg)}
 var CHANNELS=[
- {name:"DW عربية",group:"أخبار · News",url:"https://dwamdstream103.akamaized.net/hls/live/2015526/dwstream103/index.m3u8"},
- {name:"DW English",group:"أخبار · News",url:"https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8"},
- {name:"Red Bull TV",group:"رياضة · Sports",url:"https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"}];
+ {id:"alarabiya",name:"العربية",group:"أخبار",logo:logo("العربية","#0b4ea2","#fff","Al Arabiya"),url:"https://live.alarabiya.net/alarabiapublish/alarabiya.smil/playlist.m3u8"},
+ {id:"alhadath",name:"الحدث",group:"أخبار",logo:logo("الحدث","#b3121b","#fff","Al Hadath"),url:"https://av.alarabiya.net/alarabiapublish/alhadath.smil/playlist.m3u8"},
+ {id:"skynewsarabia",name:"سكاي نيوز عربية",group:"أخبار",logo:logo("sky","#1d1d1b","#fff","نيوز عربية"),url:"https://stream.skynewsarabia.com/hls/sna.m3u8"},
+ {id:"dw-ar",name:"DW عربية",group:"أخبار",logo:logo("DW","#05141f","#6cc5f0","عربية"),url:"https://dwamdstream103.akamaized.net/hls/live/2015526/dwstream103/index.m3u8"},
+ {id:"f24-ar",name:"فرانس 24 عربي",group:"أخبار",logo:logo("F24","#12a3dc","#fff","عربي"),url:"https://static.france24.com/live/F24_AR_HI_HLS/live_web.m3u8"},
+ {id:"redbull",name:"Red Bull TV",group:"رياضة",logo:logo("Red Bull","#0b1a3c","#e21b4d","TV"),url:"https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"},
+ {id:"dw-en",name:"DW English",group:"News",logo:logo("DW","#05141f","#6cc5f0","English"),url:"https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8"},
+ {id:"f24-en",name:"France 24 English",group:"News",logo:logo("F24","#12a3dc","#fff","English"),url:"https://static.france24.com/live/F24_EN_HI_HLS/live_web.m3u8"},
+ {id:"dw-es",name:"DW Español",group:"News",logo:logo("DW","#05141f","#6cc5f0","Español"),url:"https://dwamdstream104.akamaized.net/hls/live/2015530/dwstream104/index.m3u8"}];
 var MOVIES=[
- {name:"Elephants Dream",year:2006,genre:"Animation · Sci-Fi",plot:"Two men explore a strange, ever-changing machine world. The first Blender open movie (CC BY 2.5).",url:"https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"},
- {ia:"night_of_the_living_dead",q:'title:("Night of the Living Dead") AND year:1968 AND mediatype:movies',name:"Night of the Living Dead",year:1968,genre:"Horror · Classic",plot:"George A. Romero's landmark horror film. Public domain."},
- {q:'title:(Nosferatu) AND year:1922 AND mediatype:movies',name:"Nosferatu",year:1922,genre:"Horror · Silent",plot:"F. W. Murnau's silent vampire classic. Public domain."},
- {q:'title:("The General") AND year:1926 AND mediatype:movies',name:"The General",year:1926,genre:"Comedy · Silent",plot:"Buster Keaton's Civil War locomotive chase. Public domain."}];
+ {ia:"night_of_the_living_dead",t:"Night of the Living Dead",y:1968,g:"رعب · كلاسيكي",p:"مجموعة من الغرباء يتحصّنون في منزل ريفي أمام موتى عادوا إلى الحياة. تحفة جورج روميرو التي أسّست لأفلام الزومبي."},
+ {t:"Charade",y:1963,g:"غموض · رومانسي",p:"كاري غرانت وأودري هيبورن في مطاردة مثيرة في باريس بحثًا عن ثروة مفقودة بعد مقتل زوجها."},
+ {t:"His Girl Friday",y:1940,g:"كوميدي",p:"رئيس تحرير داهية يحاول استعادة أفضل صحفية لديه، وهي طليقته، بقصة صحفية لا تُفوّت."},
+ {t:"Nosferatu",y:1922,g:"رعب · صامت",p:"الكونت أورلوك مصاص الدماء يزرع الرعب في مدينة ألمانية. من روائع السينما الصامتة لمورناو."},
+ {t:"The General",y:1926,g:"كوميدي · مغامرة",p:"باستر كيتون في مطاردة قطار أسطورية خلال الحرب الأهلية الأمريكية."},
+ {t:"The Kid",y:1921,g:"كوميدي · دراما",p:"تشارلي تشابلن المتشرّد يربّي طفلًا وجده مهجورًا، في أول أفلامه الطويلة."},
+ {t:"The Little Shop of Horrors",y:1960,g:"كوميدي · رعب",p:"موظف في محل زهور يربّي نبتة غريبة لا تشبع إلا بالدم."},
+ {t:"Detour",y:1945,g:"جريمة · نوار",p:"عازف بيانو يسافر عبر أمريكا فتقوده الصدفة إلى سلسلة من الجرائم. كلاسيكية أفلام النوار."},
+ {t:"D.O.A.",y:1950,g:"جريمة · نوار",p:"رجل يكتشف أنه تسمّم ولم يبقَ له إلا أيام، فيطارد قاتله قبل فوات الأوان."}];
 var SERIES=[
- {q:'collection:classic_tv AND title:("Sherlock Holmes")',name:"Sherlock Holmes (1954)",plot:"Ronald Howard as the detective in the 1954 television series. Public domain episodes."},
- {q:'collection:classic_tv AND title:("Flash Gordon")',name:"Flash Gordon (1954)",plot:"The space adventurer's 1950s television series. Public domain episodes."},
- {q:'collection:classic_tv AND title:("Cisco Kid")',name:"The Cisco Kid",plot:"The classic western adventure series. Public domain episodes."},
- {q:'collection:classic_cartoons AND title:(Popeye)',name:"Popeye",plot:"Fleischer Studios' Popeye the Sailor cartoons. Public domain."},
- {q:'collection:classic_cartoons AND title:(Superman)',name:"Superman (Fleischer)",plot:"The 1940s Fleischer Superman cartoons. Public domain."},
- {q:'collection:classic_cartoons AND title:("Felix the Cat")',name:"Felix the Cat",plot:"Silent-era Felix the Cat cartoons. Public domain."}];
-function get(url,ms){var c=new AbortController(),t=setTimeout(function(){c.abort()},ms||9000);return fetch(url,{signal:c.signal,credentials:"omit",referrerPolicy:"no-referrer"}).then(function(r){clearTimeout(t);if(!r.ok)throw new Error("HTTP "+r.status);return r.json()},function(e){clearTimeout(t);throw e})}
-function search(q,rows){return get(IA+"/advancedsearch.php?q="+encodeURIComponent(q)+"&fl%5B%5D=identifier&fl%5B%5D=title&rows="+rows+"&sort%5B%5D=downloads+desc&output=json").then(function(j){return(j&&j.response&&j.response.docs||[]).filter(function(d){return d&&d.identifier})})}
-/* the browser-friendly H.264 MP4 of an item (Archive derivatives are H.264/AAC, which every browser plays) */
-function mp4(id){return get(IA+"/metadata/"+encodeURIComponent(id)).then(function(j){var fs=(j&&j.files||[]).filter(function(f){return/\.mp4$/i.test(f.name||"")&&!/\.ia\.mp4$/i.test(f.name)});
- fs.sort(function(a,b){var s=function(f){return(/h\.264|mpeg4/i.test(f.format||"")?0:1)*1e12+Math.abs((+f.size||0)-3e8)};return s(a)-s(b)});var f=fs[0];if(!f)throw new Error("no mp4");
- return{url:IA+"/download/"+encodeURIComponent(id)+"/"+f.name.split("/").map(encodeURIComponent).join("/"),title:(j.metadata&&j.metadata.title)||"",logo:IA+"/services/img/"+encodeURIComponent(id)}})}
-function limit(ms,p){return Promise.race([p,new Promise(function(_,r){setTimeout(function(){r(new Error("timeout"))},ms)})])}
-window.__tvproBuildDemo=function(base){var P="demo",lib={channels:(base.channels||[]).slice(),movies:(base.movies||[]).slice(),series:(base.series||[]).slice()};
- CHANNELS.forEach(function(c,i){lib.channels.push({kind:"channel",id:"demo-c"+(lib.channels.length+1),playlistId:P,number:lib.channels.length+1,name:c.name,group:c.group,url:c.url})});
- var jobs=[];
- MOVIES.forEach(function(m,i){var id="demo-m"+(4+i);
-  if(m.url){lib.movies.push({kind:"movie",id:id,playlistId:P,name:m.name,group:"Open Movies",year:m.year,genre:m.genre,plot:m.plot,url:m.url});return}
-  jobs.push(limit(20000,(m.ia?mp4(m.ia):Promise.reject()).catch(function(){return search(m.q,3).then(function(d){if(!d.length)throw new Error("none");return mp4(d[0].identifier)})})).then(function(r){lib.movies.push({kind:"movie",id:id,playlistId:P,name:m.name,group:"Classics · كلاسيكيات",year:m.year,genre:m.genre,plot:m.plot,url:r.url,logo:r.logo})},function(){}))});
- SERIES.forEach(function(s,i){var id="demo-s"+(2+i);
-  jobs.push(limit(25000,search(s.q,8).then(function(docs){return Promise.all(docs.map(function(d){return mp4(d.identifier).then(function(r){return{r:r,d:d}},function(){return null})}))})).then(function(res){var eps=(res||[]).filter(Boolean).slice(0,6);if(!eps.length)return;
-   lib.series.push({kind:"series",id:id,playlistId:P,name:s.name,group:"Classics · كلاسيكيات",plot:s.plot,logo:eps[0].r.logo,seasons:[{number:1,episodes:eps.map(function(e,n){return{id:id+"-e"+(n+1),season:1,number:n+1,title:(e.d.title||e.r.title||("Episode "+(n+1))).slice(0,80),url:e.r.url,thumbnail:e.r.logo}})}]})},function(){}))});
- return Promise.all(jobs).then(function(){var order=function(a,b){return a.id.localeCompare(b.id,"en",{numeric:true})};lib.movies.sort(order);lib.series.sort(order);return lib})}})();
+ {t:"Sherlock Holmes",q:'"Sherlock Holmes"',y:1954,g:"غموض · جريمة",p:"رونالد هوارد في دور المحقق الأشهر شيرلوك هولمز في مسلسل 1954."},
+ {t:"The Beverly Hillbillies",q:'"Beverly Hillbillies"',y:1962,g:"كوميدي",p:"عائلة ريفية تكتشف النفط فتنتقل إلى قصور بيفرلي هيلز."},
+ {t:"Bonanza",q:'Bonanza',y:1959,g:"غربي · دراما",p:"عائلة كارترايت ومزرعتها بونانزا في نيفادا القرن التاسع عشر."},
+ {t:"The Lone Ranger",q:'"Lone Ranger"',y:1949,g:"غربي · مغامرة",p:"الفارس المقنّع ورفيقه تونتو يحاربان الظلم في الغرب الأمريكي."},
+ {t:"Flash Gordon",q:'"Flash Gordon"',y:1954,g:"خيال علمي",p:"مغامرات فلاش غوردون الفضائية في مسلسل الخمسينيات."},
+ {t:"The Cisco Kid",q:'"Cisco Kid"',y:1950,g:"غربي",p:"البطل سيسكو ورفيقه بانشو في مغامرات الغرب."},
+ {t:"Popeye the Sailor",q:'Popeye',y:1933,g:"رسوم متحركة",p:"البحّار باباي وسبانخه الشهيرة في رسوم استوديوهات فلايشر.",c:"classic_cartoons"},
+ {t:"Superman",q:'Superman',y:1941,g:"رسوم متحركة · أبطال",p:"رسوم سوبرمان الكلاسيكية من استوديوهات فلايشر في الأربعينيات.",c:"classic_cartoons"},
+ {t:"Felix the Cat",q:'"Felix the Cat"',y:1919,g:"رسوم متحركة",p:"القط فيليكس من أوائل نجوم الرسوم المتحركة في عصر السينما الصامتة.",c:"classic_cartoons"}];
+
+function withTimeout(ms,p){return Promise.race([p,new Promise(function(_,r){setTimeout(function(){r(new Error("timeout"))},ms)})])}
+function raw(url,ms){var c=new AbortController(),t=setTimeout(function(){c.abort()},ms||8000);return fetch(url,{signal:c.signal,credentials:"omit",referrerPolicy:"no-referrer",cache:"no-store"}).then(function(r){clearTimeout(t);if(!r.ok)throw new Error("HTTP "+r.status);return r.text()},function(e){clearTimeout(t);throw e})}
+/* direct first; if the browser cannot read it (CORS / network), once through each gateway */
+function text(url,ms){return raw(url,ms).catch(function(){return GW.reduce(function(p,g){return p.catch(function(){return raw(g+"/proxy?url="+encodeURIComponent(url),ms)})},Promise.reject())})}
+function json(url){return text(url,9000).then(function(t){return JSON.parse(t)})}
+function search(q,rows){return json(IA+"/advancedsearch.php?q="+encodeURIComponent(q)+"&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=year&rows="+rows+"&sort%5B%5D=downloads+desc&output=json").then(function(j){return(j&&j.response&&j.response.docs||[]).filter(function(d){return d&&d.identifier})})}
+function item(id){return json(IA+"/metadata/"+encodeURIComponent(id)).then(function(j){var fs=(j&&j.files||[]).filter(function(f){return/\.mp4$/i.test(f.name||"")&&!/\.ia\.mp4$/i.test(f.name)});
+ fs.sort(function(a,b){var s=function(f){return(/h\.264|mpeg4/i.test(f.format||"")?0:1)*1e12+Math.abs((+f.size||0)-4e8)};return s(a)-s(b)});var f=fs[0];if(!f)throw new Error("no mp4");
+ var md=j.metadata||{};return{id:id,url:IA+"/download/"+encodeURIComponent(id)+"/"+f.name.split("/").map(encodeURIComponent).join("/"),title:String(md.title||""),img:IA+"/services/img/"+encodeURIComponent(id),secs:Math.round(+(f.length||0))||void 0}})}
+function firstN(list,n,fn){var out=new Array(list.length);return Promise.all(list.map(function(x,i){return fn(x,i).then(function(r){out[i]=r},function(){})})).then(function(){return out.filter(Boolean).slice(0,n)})}
+
+function channels(){return firstN(CHANNELS,7,function(c){return withTimeout(10000,text(c.url,8000)).then(function(t){if(!/#EXTM3U/.test(t))throw new Error("not hls");
+ return{kind:"channel",id:"demo-"+c.id,playlistId:P,name:c.name,group:c.group,logo:c.logo,url:c.url}})}).then(function(a){a.forEach(function(c,i){c.number=i+1});return a})}
+function movies(){return firstN(MOVIES,7,function(m,i){
+ var find=m.ia?item(m.ia):Promise.reject();
+ return withTimeout(22000,find.catch(function(){return search('title:("'+m.t+'") AND year:'+m.y+' AND mediatype:movies AND collection:feature_films',3).then(function(d){if(!d.length)return search('title:("'+m.t+'") AND mediatype:movies AND collection:feature_films',3);return d}).then(function(d){if(!d.length)throw new Error("none");return item(d[0].identifier)})})).then(function(r){
+  return{kind:"movie",id:"demo-m-"+r.id,playlistId:P,name:m.t,group:"أفلام كلاسيكية",year:m.y,genre:m.g,plot:m.p,url:r.url,logo:r.img,backdrop:r.img,duration:r.secs}})})}
+function series(){return firstN(SERIES,7,function(s){
+ return withTimeout(25000,search("title:("+s.q+") AND mediatype:movies AND collection:"+(s.c||"classic_tv"),10).then(function(docs){return firstN(docs,6,function(d){return item(d.identifier).then(function(r){r.title=String(d.title||r.title||"");return r})})})).then(function(eps){if(eps.length<2)throw new Error("too few episodes");
+  var id="demo-s-"+s.t.toLowerCase().replace(/[^a-z0-9]+/g,"-");
+  return{kind:"series",id:id,playlistId:P,name:s.t,group:"مسلسلات كلاسيكية",year:s.y,genre:s.g,plot:s.p,logo:eps[0].img,backdrop:eps[0].img,
+   seasons:[{number:1,episodes:eps.map(function(e,n){var tt=e.title.replace(new RegExp("^\\s*"+s.t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s*[-:–—]*\\s*","i"),"").trim();
+    return{id:id+"-e"+(n+1),season:1,number:n+1,title:(tt||("الحلقة "+(n+1))).slice(0,90),url:e.url,thumbnail:e.img,duration:e.secs}})}]}})})}
+
+window.__tvproBuildDemo=function(base){return Promise.all([channels(),movies(),series()]).then(function(r){
+ var lib={channels:r[0],movies:r[1],series:r[2],demoVersion:V};
+ /* nothing reachable at all (offline): keep the built-in reference demo rather than an empty library */
+ if(!lib.channels.length&&!lib.movies.length&&!lib.series.length&&base)return base;return lib})};
+
+/* upgrade an existing demo library once, so people who already added the demo get the new one */
+function upgrade(){try{if(sessionStorage.getItem("tvpro:demoUpgrade")==="1")return}catch(e){}
+ var o=indexedDB.open("tvpro");o.onsuccess=function(){var db=o.result;if(!db.objectStoreNames.contains("libraries")){db.close();return}
+  var g=db.transaction("libraries").objectStore("libraries").get(P);g.onsuccess=function(){var lib=g.result;if(!lib||lib.demoVersion===V){db.close();return}
+   try{sessionStorage.setItem("tvpro:demoUpgrade","1")}catch(e){}
+   window.__tvproBuildDemo(null).then(function(n){if(!n||(!n.channels.length&&!n.movies.length&&!n.series.length)){db.close();return}
+    n.playlistId=P;var tx=db.transaction(["libraries","playlists"],"readwrite");tx.objectStore("libraries").put(n);
+    var pg=tx.objectStore("playlists").get(P);pg.onsuccess=function(){var pl=pg.result;if(pl){pl.counts={channels:n.channels.length,movies:n.movies.length,series:n.series.length};pl.updatedAt=Date.now();tx.objectStore("playlists").put(pl)}};
+    tx.oncomplete=function(){db.close();location.reload()}})}}}
+if(document.readyState==="complete")setTimeout(upgrade,1500);else window.addEventListener("load",function(){setTimeout(upgrade,1500)})})();

@@ -91,14 +91,20 @@ Not testable here: Safari's native HLS engine (no WebKit in the build environmen
 
 ## Demo library (7 channels · 7 movies · 7 series)
 
-"Try the demo" now builds a larger library of free, legal content (`__tvproBuildDemo` in the page chunk):
-- **Channels:** the 4 reference streams, plus DW Arabic, DW English and Red Bull TV (the broadcasters' own free public streams).
-- **Movies:** the Blender open movies (CC BY) Sintel, Tears of Steel, Big Buck Bunny and Elephants Dream, plus public-domain
-  *Night of the Living Dead* (1968), *Nosferatu* (1922) and *The General* (1926) from the Internet Archive.
-- **Series:** Blender Open Movies, plus public-domain *Sherlock Holmes* (1954), *Flash Gordon* (1954), *The Cisco Kid*, *Popeye*,
-  *Superman* (Fleischer) and *Felix the Cat* from the Internet Archive.
+"Try the demo" builds the library on the viewer's device (`__tvproBuildDemo` in the page chunk). Every item is checked
+before it is listed:
+- **Channels:** the broadcasters' own free public streams (Al Arabiya, Al Hadath, Sky News Arabia, DW Arabic,
+  France 24 Arabic, Red Bull TV, DW English, plus spares). Each playlist is fetched once, and the first 7 that answer are
+  kept. Each channel has a generated SVG logo.
+- **Movies:** public-domain classics from the Internet Archive (Night of the Living Dead, Charade, His Girl Friday,
+  Nosferatu, The General, The Kid, The Little Shop of Horrors, plus spares), resolved to the item's H.264 MP4, with the
+  Archive's artwork.
+- **Series:** real public-domain TV series and cartoon series (Sherlock Holmes 1954, The Beverly Hillbillies, Bonanza,
+  The Lone Ranger, Flash Gordon, The Cisco Kid, Popeye, plus spares). Each has up to 6 episodes, with artwork and
+  thumbnails. Movies are never used as episodes.
 
-Internet Archive items are resolved on the viewer's device when the demo is added: search, then the item's H.264 MP4
-derivative. Titles that don't resolve are left out, so nothing broken is listed. The broadcaster channels are fixed
-URLs and couldn't be verified from the build environment. Tests: `tests/demo.test.mjs`, plus the demo scenario in
-`tests/e2e/playback.e2e.mjs`. Anyone who already added the demo must remove it and add it again to get the new library.
+Archive search/metadata requests go direct first and through a gateway if the browser can't read them (CORS). This is
+why the first version found only 1 classic film: search from the phone failed. The old reference test streams (Akamai
+test, Apple bip-bop, Mux, bitdash, Unified Streaming) did not play on the user's phone and were removed. An existing
+demo library is upgraded automatically on the next visit (`demoVersion` 3). Tests: `tests/demo.test.mjs` (4) and the
+demo e2e scenario (7/7/7, artwork, an episode plays, automatic upgrade).
