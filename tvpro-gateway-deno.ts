@@ -1,142 +1,89 @@
 /**
- * TV Pro Stream Gateway — Deno Deploy build.
+ * TV Pro Stream Gateway v5 — Deno Deploy build.
  *
- * Identical logic to the Cloudflare Worker build; both use only Web-standard APIs, and
- * `export default { fetch }` is Deno Deploy's native entry point. Paste this whole file into a
- * Deno Deploy playground's main.ts and press Deploy — no environment variables, no npm install.
- * (The Node build in gateway.js is for Vercel/Railway/Render/Fly/VPS instead; it uses
- * CommonJS `require`, which a Deno playground's ESM main.ts cannot load.)
+ * Paste this file into a Deno Deploy project (or link the repo with entrypoint tvpro-gateway-deno.ts).
+ * No environment variables, no npm install. TV Pro appends /proxy?url=<source> itself.
  *
- * Original header follows.
- *
- * TV Pro Stream Gateway — Cloudflare Worker build.
- *
- * A minimal, isolated proxy TV Pro's playback resolver falls back to when a stream can't be
- * reached directly from the browser (mixed content on an http:// source, or a CORS refusal on
- * an https:// source). It is never used for streams that already play directly.
- *
- * Usage: point TV Pro's Settings → Playback → "HTTPS proxy for http:// sources" (or the
- * NEXT_PUBLIC_TVPRO_GATEWAY_URL build variable) at this Worker's URL, e.g.
- *   https://your-worker.workers.dev
- * TV Pro appends /proxy?url=<source> itself — nothing else to configure.
+ * The shared gateway core below is identical in cloudflare-worker.js; only the platform wrapper differs.
+ * Unlike Cloudflare, Deno can reach bare IP addresses and any port, which IPTV panels redirect to all the time.
+ * Every failure carries an X-TVPro-Error code and X-TVPro-Upstream-Status for diagnostics. Target URLs are
+ * never logged: they carry the subscriber's IPTV credentials.
  */
-
-const BLOCKED_HOSTS = new Set([
-  'localhost', '0.0.0.0', '127.0.0.1', '::1', '[::1]', '[::]',
-  'metadata.google.internal', 'metadata', 'instance-data',
-]);
 const MAX_REDIRECTS = 5;
-const MAX_PLAYLIST_BYTES = 4 * 1024 * 1024; // playlists are text and always buffered for rewriting
-const RATE_LIMIT = { windowMs: 10_000, max: 120 }; // per IP, best-effort within one isolate
+const MAX_PLAYLIST_BYTES = 4 * 1024 * 1024;
+const UPSTREAM_TIMEOUT_MS = globalThis.TVPRO_UPSTREAM_TIMEOUT_MS || 15000; // until response headers arrive; the body itself streams without a deadline
+const FALLBACK_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 
-function isPrivateIPv4(host) {
-  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+// ---- destination validation (SSRF protection) ----
+const BLOCKED_NAMES = new Set(['localhost', 'metadata', 'metadata.google.internal', 'instance-data']);
+function isIPv4(h) { return /^\d{1,3}(\.\d{1,3}){3}$/.test(h); }
+function isPrivateIPv4(h) {
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!m) return false;
-  const [a, b] = m.slice(1, 3).map(Number);
-  return (
-    a === 0 || a === 10 || a === 127 ||
-    (a === 169 && b === 254) || // link-local + cloud metadata (169.254.169.254)
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) || // CGNAT
-    a >= 224
-  );
+  const a = +m[1], b = +m[2];
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
 }
-
-function isBlockedHost(hostname) {
-  const h = hostname.toLowerCase();
-  if (BLOCKED_HOSTS.has(h)) return true;
-  if (h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
-  if (isPrivateIPv4(h)) return true;
-  if (h.startsWith('[')) {
-    const v6 = h.slice(1, -1);
-    if (v6 === '::1' || v6 === '::' || /^f[cd]/i.test(v6) || /^fe[89ab]/i.test(v6) || v6.startsWith('::ffff:')) return true;
-  }
+function isBlockedHost(host) {
+  const h = host.toLowerCase();
+  if (BLOCKED_NAMES.has(h) || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || isPrivateIPv4(h)) return true;
+  if (h.startsWith('[')) { const v = h.slice(1, -1); return v === '::1' || v === '::' || /^f[cd]/i.test(v) || /^fe[89ab]/i.test(v) || v.startsWith('::ffff:'); }
   return false;
 }
-
 function validateTarget(raw) {
-  let url;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (!['http:', 'https:'].includes(url.protocol) || isBlockedHost(url.hostname)) return null;
-  return url;
+  try { const u = new URL(raw); return /^https?:$/.test(u.protocol) && !u.username && !u.password && !isBlockedHost(u.hostname) ? u : null; } catch { return null; }
 }
 
-function corsHeaders(extra = {}) {
-  return {
-    'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, X-TVPro-Error',
-    ...extra,
-  };
+// ---- responses ----
+class GatewayError extends Error { constructor(code, status, detail) { super(code); this.code = code; this.status = status; this.detail = detail || ''; } }
+function errorResponse(cors, code, status, detail, extra = {}) {
+  return new Response(code + (detail ? ': ' + detail : ''), { status, headers: cors({ 'Content-Type': 'text/plain;charset=utf-8', 'Cache-Control': 'no-store', 'X-TVPro-Error': code, ...extra }) });
+}
+function upstreamErrorCode(status) {
+  if (status === 401 || status === 403 || status === 404 || status === 429) return 'UPSTREAM_' + status;
+  if (status >= 500) return 'UPSTREAM_5XX';
+  return 'UPSTREAM_' + status;
 }
 
-/** Movies and episodes are fetched in byte ranges; Safari refuses to play a file at all unless
- *  the 206 response carries Content-Range and Content-Length. Pass the range metadata through. */
-function passthroughHeaders(upstream, contentType) {
-  const headers = { 'Content-Type': contentType || 'application/octet-stream', 'Cache-Control': 'no-store' };
-  for (const name of ['content-length', 'content-range', 'accept-ranges']) {
-    const value = upstream.headers.get(name);
-    if (value) headers[name] = value;
-  }
-  if (!headers['accept-ranges']) headers['accept-ranges'] = 'bytes';
-  return headers;
-}
-
-function proxied(workerOrigin, target) {
-  return `${workerOrigin}/proxy?url=${encodeURIComponent(target)}`;
-}
-
-/** Rewrites URI lines/attributes inside an HLS playlist so every reference routes back through this gateway. */
-function absolute(ref, base) {
-  try { return new URL(ref, base).toString(); } catch { return null; }
-}
-function rewriteM3U8(text, sourceUrl, workerOrigin) {
+// ---- HLS ----
+function proxied(origin, absoluteURL) { return origin + '/proxy?url=' + encodeURIComponent(absoluteURL); }
+function absolute(ref, base) { try { return new URL(ref, base).toString(); } catch { return null; } }
+function rewriteManifest(text, sourceURL, origin) {
   return text.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return line;
-    if (trimmed.startsWith('#')) {
-      // EXT-X-KEY, EXT-X-MAP and EXT-X-MEDIA all carry a URI="..." attribute that also needs rewriting
-      // (a line can carry more than one, and a malformed one is left as-is rather than failing the list).
-      return line.replace(/URI="([^"]+)"/g, (all, uri) => {
-        const abs = absolute(uri, sourceUrl);
-        return abs ? `URI="${proxied(workerOrigin, abs)}"` : all;
-      });
-    }
-    const abs = absolute(trimmed, sourceUrl);
-    return abs ? proxied(workerOrigin, abs) : line;
+    const s = line.trim();
+    if (!s) return line;
+    // URI="..." attributes (EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA, EXT-X-I-FRAME-STREAM-INF, …); a line may carry several
+    if (s.startsWith('#')) return line.replace(/URI="([^"]+)"/g, (all, uri) => { const abs = absolute(uri, sourceURL); return abs ? 'URI="' + proxied(origin, abs) + '"' : all; });
+    const abs = absolute(s, sourceURL); // relative segment/variant paths resolve against the final (post-redirect) URL; query tokens are kept
+    return abs ? proxied(origin, abs) : line;
   }).join('\n');
 }
+const isPlaylistPath = (u) => /\.m3u8?$/i.test(u.pathname);
 
-/** Reads only the first chunk to tell an HLS playlist from a media stream. A playlist is buffered
- *  (it must be rewritten); anything else is re-assembled and streamed through untouched, so an
- *  endless live .ts stream is never buffered. Panels label playlists inconsistently (text/plain,
- *  octet-stream, extension-less redirect targets), so the body, not the label, decides. */
-async function sniffPlaylist(body) {
+/** Reads only the first chunk to tell an HLS playlist from a media stream. Playlists are buffered (they must be
+ *  rewritten); anything else is re-assembled and streamed through untouched, so a live .ts or a movie is never
+ *  held in memory. Panels label playlists inconsistently, so the body decides, not the label. */
+async function sniff(body) {
   const reader = body.getReader();
   const first = await reader.read();
   const head = first.done ? new Uint8Array() : first.value;
-  const isPlaylist = new TextDecoder().decode(head.slice(0, 64)).replace(/^\uFEFF/, '').trimStart().startsWith('#EXTM3U');
-  if (!isPlaylist) {
+  const text64 = new TextDecoder().decode(head.slice(0, 64)).replace(/^﻿/, '').trimStart();
+  if (!text64.startsWith('#EXTM3U')) {
     const stream = new ReadableStream({
       start(c) { if (head.length) c.enqueue(head); if (first.done) c.close(); },
       async pull(c) { const r = await reader.read(); if (r.done) c.close(); else c.enqueue(r.value); },
       cancel(reason) { return reader.cancel(reason); },
     });
-    return { text: null, stream };
+    return { text: null, stream, head, empty: first.done && !head.length };
   }
   const parts = [head];
   let size = head.length;
-  for (let done = first.done; !done;) {
+  for (;;) {
     const r = await reader.read();
-    done = r.done;
-    if (done) break;
+    if (r.done) break;
     parts.push(r.value);
     size += r.value.length;
-    if (size > MAX_PLAYLIST_BYTES) { await reader.cancel(); return { text: null, stream: null, tooLarge: true }; }
+    if (size > MAX_PLAYLIST_BYTES) { await reader.cancel(); throw new GatewayError('PLAYLIST_TOO_LARGE', 413); }
   }
   const all = new Uint8Array(size);
   let at = 0;
@@ -144,102 +91,130 @@ async function sniffPlaylist(body) {
   return { text: new TextDecoder().decode(all), stream: null };
 }
 
-/** Follows redirects manually so every hop — not just the first URL — is checked against the block list. */
-async function fetchValidated(url, init, redirectsLeft = MAX_REDIRECTS) {
-  const res = await fetch(url.toString(), { ...init, redirect: 'manual' });
-  if ([301, 302, 303, 307, 308].includes(res.status)) {
-    const location = res.headers.get('location');
-    if (!location || redirectsLeft <= 0) throw new Error('too many redirects');
-    const next = validateTarget(new URL(location, url).toString());
-    if (!next) throw new Error('redirect to a blocked host');
-    return fetchValidated(next, init, redirectsLeft - 1);
-  }
-  // IPTV panels routinely redirect a channel URL to a different streaming server; relative
-  // segment paths in the playlist belong to *that* server, so callers need the final URL.
-  return { res, finalUrl: url };
+/** Panels answer refused/expired/blocked requests with a short text or HTML body and status 200. */
+function classifyNonMedia(head, ct) {
+  const t = new TextDecoder().decode(head.slice(0, 512)).trim();
+  if (!t) return 'EMPTY_RESPONSE';
+  if (/\bblock(ed)?\b|\bbanned?\b/i.test(t)) return 'UPSTREAM_BLOCKED';
+  if (/expired|disabled|not\s+allowed|max(imum)?\s+connections?|too\s+many/i.test(t)) return 'UPSTREAM_REFUSED';
+  if (ct.startsWith('text/html')) return 'UPSTREAM_HTML_NOT_MEDIA';
+  return 'HLS_MANIFEST_INVALID';
 }
 
-/** IPTV panels commonly allow-list by User-Agent and answer anything unfamiliar with "Blocked".
- *  So the gateway presents the viewer's own browser identity, exactly as a direct request would,
- *  rather than announcing itself. Nothing else from the viewer is forwarded (no cookies, no referrer). */
-const FALLBACK_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
-function upstreamHeaders(request, target) {
+// ---- upstream fetch ----
+async function fetchValidated(url, init, checkTarget, left = MAX_REDIRECTS) {
+  checkTarget(url);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(url.toString(), { ...init, redirect: 'manual', signal: ctl.signal });
+  } catch (e) {
+    if (ctl.signal.aborted) throw new GatewayError('UPSTREAM_TIMEOUT', 504, 'no response within ' + UPSTREAM_TIMEOUT_MS / 1000 + 's');
+    throw new GatewayError('CONNECTION_FAILED', 502, /reset|refused|closed|dns|resolve|lookup|tls|ssl|certificate/i.test(String(e && e.message)) ? String(e.message).slice(0, 80) : 'network error');
+  } finally { clearTimeout(timer); }
+  if ([301, 302, 303, 307, 308].includes(res.status)) {
+    const loc = res.headers.get('location');
+    try { res.body && res.body.cancel(); } catch {}
+    if (!loc) throw new GatewayError('UPSTREAM_BAD_REDIRECT', 502, 'redirect without location');
+    if (left <= 0) throw new GatewayError('TOO_MANY_REDIRECTS', 508);
+    const next = validateTarget(new URL(loc, url).toString());
+    if (!next) throw new GatewayError('BLOCKED_REDIRECT', 403, 'redirect to a private or invalid address');
+    return fetchValidated(next, init, checkTarget, left - 1);
+  }
+  return { res, finalURL: url };
+}
+
+/** Shared /proxy handler. `platform.checkTarget(url)` throws GatewayError for destinations this platform cannot reach. */
+async function handleProxy(request, reqUrl, cors, platform) {
+  const raw = reqUrl.searchParams.get('url');
+  if (!raw) return new Response('Missing url parameter', { status: 400, headers: cors({ 'Content-Type': 'text/plain;charset=utf-8', 'X-TVPro-Error': 'MISSING_URL' }) });
+  const target = validateTarget(raw);
+  if (!target) return errorResponse(cors, 'BLOCKED_TARGET', 403, 'private, local or invalid address');
+
   const headers = { 'User-Agent': request.headers.get('user-agent') || FALLBACK_UA, 'Accept': '*/*', 'Accept-Encoding': 'identity' };
   const range = request.headers.get('range');
-  // Lets the player seek inside movies. Never sent for playlists: some panels answer with a truncated 206 list.
-  if (range && !/\.m3u8?$/i.test(target.pathname)) headers['Range'] = range;
-  return headers;
+  if (range && !isPlaylistPath(target)) headers['Range'] = range; // seeking in movies; never for playlists (some panels return a truncated 206 list)
+
+  let upstream, finalURL;
+  try {
+    // Many IPTV panels reject HEAD, so HEAD is answered from a GET whose body is discarded.
+    ({ res: upstream, finalURL } = await fetchValidated(target, { method: 'GET', headers }, platform.checkTarget));
+  } catch (e) {
+    if (e instanceof GatewayError) return errorResponse(cors, e.code, e.status, e.detail);
+    throw e;
+  }
+  const ct = (upstream.headers.get('content-type') || '').toLowerCase();
+  const diag = { 'X-TVPro-Upstream-Status': String(upstream.status), 'X-TVPro-Final-Host': finalURL.host };
+
+  if (!upstream.ok) {
+    try { upstream.body && upstream.body.cancel(); } catch {}
+    return errorResponse(cors, upstreamErrorCode(upstream.status), upstream.status === 429 ? 429 : upstream.status >= 500 ? 502 : upstream.status, '', diag);
+  }
+
+  const namedPlaylist = ct.includes('mpegurl') || isPlaylistPath(finalURL) || isPlaylistPath(target);
+  let body = upstream.body;
+  if (!body) {
+    if (request.method !== 'HEAD' && (namedPlaylist || upstream.headers.get('content-length') === '0')) return errorResponse(cors, 'EMPTY_RESPONSE', 502, '', diag);
+  } else if (request.method !== 'HEAD' && (namedPlaylist || ct.startsWith('text/') || ct === '' || ct.includes('octet-stream'))) {
+    let sniffed;
+    try { sniffed = await sniff(body); } catch (e) { if (e instanceof GatewayError) return errorResponse(cors, e.code, e.status, e.detail, diag); throw e; }
+    if (sniffed.text !== null) {
+      return new Response(rewriteManifest(sniffed.text, finalURL.toString(), reqUrl.origin), {
+        status: 200, headers: cors({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store', ...diag }),
+      });
+    }
+    if (sniffed.empty) return errorResponse(cors, 'EMPTY_RESPONSE', 502, '', diag);
+    // Media types (video/*, audio/*, octet-stream) stream through unless the body is plainly a refusal message.
+    const media = /^(video|audio)\//.test(ct) || ct.includes('mp2t') || ct.includes('octet-stream');
+    const refusal = media && sniffed.head.length < 512 && /^[\x09\x0a\x0d\x20-\x7e]*$/.test(new TextDecoder().decode(sniffed.head)) && /block|bann?ed|expired|disabled|denied/i.test(new TextDecoder().decode(sniffed.head));
+    if (refusal || (!media && (namedPlaylist || ct.startsWith('text/')))) {
+      sniffed.stream.cancel();
+      // A refusal message from the panel is a refusal (403), not a gateway fault: the player must not retry it through other gateways.
+      const code = classifyNonMedia(sniffed.head, ct);
+      return errorResponse(cors, code, code === 'HLS_MANIFEST_INVALID' ? 502 : 403, '', diag);
+    }
+    body = sniffed.stream;
+  }
+
+  const out = cors({ 'Content-Type': ct || 'application/octet-stream', 'Cache-Control': 'no-store', ...diag });
+  for (const n of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) { const v = upstream.headers.get(n); if (v) out[n] = v; }
+  if (!out['accept-ranges'] && upstream.status === 206) out['accept-ranges'] = 'bytes';
+  if (request.method === 'HEAD') { try { body && body.cancel(); } catch {} return new Response(null, { status: upstream.status, headers: out }); }
+  return new Response(body, { status: upstream.status, headers: out });
 }
 
-const buckets = new Map(); // best-effort per-isolate rate limiting; a KV or Durable Object gives real global limits
+// ---- Deno platform wrapper ----
+const RATE_LIMIT = { windowMs: 10_000, max: 120 }; // per client IP, best-effort within one isolate
+const buckets = new Map();
 function rateLimited(ip) {
   const now = Date.now();
-  const bucket = buckets.get(ip);
-  if (!bucket || now - bucket.start > RATE_LIMIT.windowMs) {
-    buckets.set(ip, { start: now, count: 1 });
-    return false;
-  }
-  bucket.count++;
-  return bucket.count > RATE_LIMIT.max;
+  const b = buckets.get(ip);
+  if (!b || now - b.start > RATE_LIMIT.windowMs) { buckets.set(ip, { start: now, count: 1 }); return false; }
+  return ++b.count > RATE_LIMIT.max;
 }
+const cors = (extra = {}) => ({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type, X-TVPro-Error, X-TVPro-Upstream-Status, X-TVPro-Final-Host',
+  ...extra,
+});
+const platform = { checkTarget() {} };
 
 export default {
   async fetch(request, info) {
-    if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders() });
-
-    const reqUrl = new URL(request.url);
-    if (reqUrl.pathname !== '/proxy') {
-      return new Response('TV Pro Stream Gateway: use /proxy?url=<source>', { status: 200, headers: corsHeaders() });
-    }
-
-    // Cloudflare sets cf-connecting-ip; Deno Deploy passes the peer address as the second argument.
-    // If the platform exposes neither, skip limiting rather than lump every visitor into one bucket.
-    const ip = request.headers.get('cf-connecting-ip')
-      || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim()
-      || info?.remoteAddr?.hostname
-      || '';
-    if (ip && rateLimited(ip)) return new Response('Too many requests', { status: 429, headers: corsHeaders() });
-
-    const target = reqUrl.searchParams.get('url');
-    if (!target) return new Response('Missing url parameter', { status: 400, headers: corsHeaders() });
-    const parsed = validateTarget(target);
-    if (!parsed) return new Response('Blocked or invalid host', { status: 403, headers: corsHeaders() });
-
-    let upstream, finalUrl;
     try {
-      // Never log `target` — it carries the person's IPTV username/password in query form.
-      ({ res: upstream, finalUrl } = await fetchValidated(parsed, { headers: upstreamHeaders(request, parsed) }));
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
+      const url = new URL(request.url);
+      if (url.pathname !== '/proxy') return new Response('TV Pro Stream Gateway: use /proxy?url=<source>', { headers: cors({ 'Content-Type': 'text/plain;charset=utf-8' }) });
+      if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405, headers: cors() });
+      // Deno Deploy passes the peer address as the second argument; skip limiting rather than lump every visitor into one bucket.
+      const ip = request.headers.get('cf-connecting-ip') || (request.headers.get('x-forwarded-for') || '').split(',')[0].trim() || (info && info.remoteAddr && info.remoteAddr.hostname) || '';
+      if (ip && rateLimited(ip)) return errorResponse(cors, 'GATEWAY_RATE_LIMITED', 429, '');
+      return await handleProxy(request, url, cors, platform);
     } catch {
-      return new Response('Upstream fetch failed', { status: 502, headers: corsHeaders() });
+      return errorResponse(cors, 'GATEWAY_FAILURE', 500, '');
     }
-
-    const contentType = upstream.headers.get('content-type') || '';
-    const ct = contentType.toLowerCase();
-    const namedPlaylist = /\.m3u8?$/i.test(finalUrl.pathname) || /\.m3u8?$/i.test(parsed.pathname) || ct.includes('mpegurl');
-
-    if (upstream.ok && upstream.body && request.method !== 'HEAD' && (namedPlaylist || ct.startsWith('text/') || ct === '' || ct.includes('octet-stream'))) {
-      const sniffed = await sniffPlaylist(upstream.body);
-      if (sniffed.tooLarge) return new Response('Playlist too large', { status: 413, headers: corsHeaders() });
-      if (sniffed.text !== null) {
-        const rewritten = rewriteM3U8(sniffed.text, finalUrl.toString(), reqUrl.origin);
-        return new Response(rewritten, {
-          status: 200,
-          headers: corsHeaders({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' }),
-        });
-      }
-      // Expired or blocked accounts get an HTML/text page with status 200; report it as a failure so the player moves on.
-      if (ct.startsWith('text/html') || ct.includes('mpegurl') || (namedPlaylist && ct.startsWith('text/'))) {
-        sniffed.stream.cancel();
-        return new Response('Upstream did not return a playlist', { status: 502, headers: corsHeaders({ 'X-TVPro-Error': 'upstream-not-a-playlist' }) });
-      }
-      return new Response(sniffed.stream, { status: upstream.status, headers: corsHeaders(passthroughHeaders(upstream, contentType)) });
-    }
-
-    // Segments and everything else (.ts/.m4s/.aac/init.mp4/key files/…): stream through unchanged.
-    if (request.method === 'HEAD') upstream.body?.cancel();
-    return new Response(request.method === 'HEAD' ? null : upstream.body, {
-      status: upstream.status,
-      headers: corsHeaders(passthroughHeaders(upstream, contentType)),
-    });
   },
 };

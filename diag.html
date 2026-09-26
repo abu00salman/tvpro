@@ -38,6 +38,7 @@
 </div>
 <div id="status" class="muted"></div>
 <div id="results"></div>
+<div id="playlog"></div>
 <div id="reportWrap" style="display:none">
   <p class="muted">صوّر هذه الصفحة أو انسخ التقرير وأرسله:</p>
   <textarea id="report" readonly></textarea>
@@ -104,7 +105,7 @@
     let res = await timed(playlistUrl);
     if (res.err) { step('✗', 'bad', 'القائمة: لا اتصال (' + res.err + ')'); return badge('bad', 'فشل'); }
     let r = res.r, body = await r.text().catch(() => '');
-    const info = (resp, ms) => 'HTTP ' + resp.status + ' · ' + (resp.headers.get('content-type') || '-') + ' · ' + ms + 'ms' + (resp.headers.get('x-tvpro-error') ? ' · ' + resp.headers.get('x-tvpro-error') : '');
+    const info = (resp, ms) => 'HTTP ' + resp.status + ' · ' + (resp.headers.get('content-type') || '-') + ' · ' + ms + 'ms' + (resp.headers.get('x-tvpro-error') ? ' · ' + resp.headers.get('x-tvpro-error') : '') + (resp.headers.get('x-tvpro-upstream-status') ? ' · upstream ' + resp.headers.get('x-tvpro-upstream-status') : '');
     if (!r.ok || !body.trimStart().startsWith('#EXTM3U')) { step('✗', 'bad', 'القائمة: ' + info(r, res.ms), body.slice(0, 300)); return badge('bad', 'فشل'); }
     step('✓', 'ok', 'القائمة: ' + info(r, res.ms), body.slice(0, 220));
     let base = playlistUrl;
@@ -164,14 +165,26 @@
         '<div class="step">الصيغ المسموحة: <b dir="ltr">' + esc(fmts) + '</b></div>' +
         (full ? '<div class="step bad">كل الاتصالات مستخدمة، فالسيرفر يرفض أي تشغيل جديد للقنوات. أغلق التطبيقات والأجهزة الأخرى التي تستخدم نفس الاشتراك وانتظر دقيقة.</div>' : ''));
       log.push('[account] status=' + u.status + ' auth=' + u.auth + ' exp=' + exp + ' connections=' + active + '/' + max + ' formats=' + fmts, '');
-      return;
+      return { ok, full, formats: fmts };
     }
     set('warn', 'تعذّر', '<div class="step muted">تعذّر قراءة حالة الاشتراك من السيرفر.</div>');
     log.push('[account] unavailable', '');
+    return null;
+  }
+
+  function playLog() {
+    let a = []; try { a = JSON.parse(localStorage.getItem('tvpro:playdiag') || '[]'); } catch {}
+    return a.slice(-25).map((e) => [e.t && e.t.slice(11, 19), e.ev, e.kind, e.ext && '.' + e.ext, e.route && 'via ' + e.route, e.err, e.code, e.detail].filter(Boolean).join(' · '));
+  }
+  function renderPlayLog() {
+    const lines = playLog(); if (!lines.length) return;
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = '<h3><span>آخر محاولات التشغيل في TV Pro</span><span class="badge muted">' + lines.length + '</span></h3><pre>' + esc(redact(lines.join('\n'))) + '</pre>';
+    $('playlog').appendChild(card);
   }
 
   let lastLog = [];
-  function renderReport() { $('report').value = lastLog.join('\n'); $('reportWrap').style.display = ''; }
+  function renderReport() { const pl = playLog(); $('report').value = lastLog.join('\n') + (pl.length ? '\n[recent playback]\n' + redact(pl.join('\n')) : ''); $('reportWrap').style.display = ''; }
 
   async function run() {
     $('go').disabled = true; $('results').innerHTML = ''; $('status').textContent = 'جارٍ قراءة القائمة من هذا الجهاز…';
@@ -189,8 +202,17 @@
       lastLog = ['TV Pro diag ' + new Date().toISOString(), 'UA: ' + navigator.userAgent, 'Channel: ' + ch.number + ' ' + ch.name, 'Source: ' + redact(src) + '  (port ' + (srcUrl.port || 'default') + ')', ''];
       let custom = null; try { custom = JSON.parse(localStorage.getItem('tvpro:settings') || '{}').proxyUrl || null; } catch {}
       const routes = [['مباشر (بدون بوابة)', src], ...[custom, ...GATEWAYS].filter((g, i, a) => g && a.indexOf(g) === i).map((g) => [g.replace(/^https:\/\//, ''), via(g, src)])];
-      await accountInfo(secret, lastLog);
+      const acct = await accountInfo(secret, lastLog);
+      if (acct && (!acct.ok || acct.full)) {
+        // Opening a stream now would be refused and only add to the provider's count of attempts.
+        $('status').innerHTML += '<br><b class="bad">' + (acct.full ? 'لم أفتح أي بث: كل اتصالات الاشتراك مستخدمة الآن.' : 'لم أفتح أي بث: الاشتراك غير فعّال لدى المزوّد.') + '</b>';
+        lastLog.push('[streams] not tested: ' + (acct.full ? 'CONNECTION_LIMIT' : 'ACCOUNT_INACTIVE'), '');
+        renderReport(); return;
+      }
+      // One route at a time and stop at the first that works: each attempt is a real session on the provider.
+      let worked = false;
       for (const [name, url] of routes) {
+        if (worked) { lastLog.push('[' + name + ']  => not tested (a route already works)', ''); continue; }
         const card = document.createElement('div'); card.className = 'card';
         card.innerHTML = '<h3><span class="host">' + esc(name) + '</span><span class="badge muted">…</span></h3><div class="steps"></div>';
         $('results').appendChild(card);
@@ -200,6 +222,7 @@
           card.querySelector('.badge').textContent = 'غير ممكن'; card.querySelector('.steps').innerHTML = '<div class="step muted">المصدر http والموقع https، فالمتصفح يمنع الاتصال المباشر. هذا طبيعي.</div>';
         } else {
           try { await testRoute(name, url, card, log); } catch (e) { log.push('  ✗ ' + (e.message || e)); }
+          worked = card.querySelector('.badge').classList.contains('ok');
         }
         lastLog.push(...log, '');
       }
@@ -210,6 +233,7 @@
     } finally { $('go').disabled = false; }
   }
   $('go').onclick = run;
+  try { renderPlayLog(); } catch {}
   $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
   $('copy').onclick = async () => { try { await navigator.clipboard.writeText($('report').value); $('copy').textContent = 'تم النسخ ✓'; } catch { $('report').select(); } };
 })();
