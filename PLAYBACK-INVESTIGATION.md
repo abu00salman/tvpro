@@ -88,3 +88,17 @@ Not testable here: Safari's native HLS engine (no WebKit in the build environmen
 - A provider that blocks data-centre IPs, or limits the account to one connection, can refuse gateway traffic no matter what the app does. The new logging shows exactly when that happens (`UPSTREAM_BLOCKED` / `UPSTREAM_403` / `CONNECTION_LIMIT`).
 - Cloudflare Workers can never reach bare-IP panels; only the Deno gateways serve this provider.
 - `great-fox` runs an older gateway build, deployed from another Deno account. Pasting the new `tvpro-gateway-deno.ts` there adds the new error codes; it plays correctly as is. `rmz` redeploys from `main` automatically. The Cloudflare Worker needs `wrangler deploy` (or a paste in the dashboard).
+
+## Demo library (7 channels · 7 movies · 7 series)
+
+"Try the demo" now builds a larger library of free, legal content (`__tvproBuildDemo` in the page chunk):
+- **Channels:** the 4 reference streams, plus DW Arabic, DW English and Red Bull TV (the broadcasters' own free public streams).
+- **Movies:** the Blender open movies (CC BY) Sintel, Tears of Steel, Big Buck Bunny and Elephants Dream, plus public-domain
+  *Night of the Living Dead* (1968), *Nosferatu* (1922) and *The General* (1926) from the Internet Archive.
+- **Series:** Blender Open Movies, plus public-domain *Sherlock Holmes* (1954), *Flash Gordon* (1954), *The Cisco Kid*, *Popeye*,
+  *Superman* (Fleischer) and *Felix the Cat* from the Internet Archive.
+
+Internet Archive items are resolved on the viewer's device when the demo is added: search, then the item's H.264 MP4
+derivative. Titles that don't resolve are left out, so nothing broken is listed. The broadcaster channels are fixed
+URLs and couldn't be verified from the build environment. Tests: `tests/demo.test.mjs`, plus the demo scenario in
+`tests/e2e/playback.e2e.mjs`. Anyone who already added the demo must remove it and add it again to get the new library.

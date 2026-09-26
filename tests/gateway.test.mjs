@@ -1,4 +1,4 @@
-// Gateway behaviour tests: node --test tests/
+// Gateway behaviour tests: node --test tests/gateway.test.mjs tests/demo.test.mjs
 // Both gateway builds (Cloudflare, Deno) are loaded as-is with a mocked upstream `fetch`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
