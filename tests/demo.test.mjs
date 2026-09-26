@@ -8,7 +8,9 @@ const page = readFileSync(new URL('../_next/static/chunks/app/' + /page-[a-f0-9]
 globalThis.window = globalThis;
 globalThis.document = { readyState: 'loading' };
 globalThis.addEventListener = () => {};
-(0, eval)(page.slice(page.indexOf(';(function(){if(typeof window==="undefined"||window.__tvproBuildDemo)return;')));
+const start = page.indexOf(';(function(){if(typeof window==="undefined"||window.__tvproBuildDemo)return;');
+const end = page.indexOf(';(function(){if(typeof window==="undefined"||window.__tvproGulf)return;', start);
+(0, eval)(page.slice(start, end < 0 ? undefined : end));
 
 const ok = (body, ct = 'application/json') => new Response(typeof body === 'string' ? body : JSON.stringify(body), { headers: { 'content-type': ct } });
 /* A fake internet: broadcasters' playlists, and the Internet Archive search/metadata APIs.
