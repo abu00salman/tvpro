@@ -176,17 +176,19 @@ await scenario('panel answers "Blocked" → one attempt, UPSTREAM_403, no retrie
   assert.ok(!/tvuser|s3cretpass/.test(consoleText.join('\n')), 'credentials in console');
   await ctx.close(); return { liveSessions: sessions, code: err.code, gatewaysTried: hits.length, credentialsExposed: false };
 });
-await scenario('connection limit: provider 403 + player_api active 1/1 → CONNECTION_LIMIT message', async () => {
+await scenario('live channel connectivity failure: no VLC/Infuse popup (it cannot fix a provider refusal)', async () => {
   const { ctx, page } = await session();
   P.mode.live = '403'; P.mode.active = '1'; P.log = [];
   await page.goto('https://tv-pro.app/#/live'); await page.getByText('Live One').first().click();
   assert.equal(await outcome(page), 'error');
-  await page.waitForSelector('[data-tvpro-ext]'); await page.waitForTimeout(2500);
-  const msg = await page.textContent('[data-tvpro-ext]');
-  assert.match(msg, /connection limit/i);
+  await page.waitForTimeout(1500);
+  const popup = await page.locator('[data-tvpro-ext]').count();
+  const plainError = (await page.locator('[role="alert"]').count()) > 0;
   const sessions = streamRequests(/^\/live\//);
-  assert.equal(sessions, 1);
-  await ctx.close(); return { liveSessions: sessions, message: msg.slice(0, 120) };
+  assert.equal(popup, 0, 'no external-player popup for an ordinary live connectivity failure');
+  assert.ok(plainError, 'the plain error + retry is still shown');
+  assert.equal(sessions, 1, 'only the one real attempt, no extra probing connections');
+  await ctx.close(); return { liveSessions: sessions, popupShown: popup > 0 };
 });
 await scenario('upstream timeout → at most 3 attempts, then UPSTREAM/GATEWAY 504 classification', async () => {
   const { ctx, page } = await session();
@@ -326,19 +328,20 @@ await scenario('demo: 7 channels / 7 movies / 7 real series with artwork; an epi
   await ctx.close(); return { counts, seriesArtwork: cards, episode: o, upgraded };
 });
 
-await scenario('Gulf Cup row: only verified channels shown; a real playback failure hides the channel app-wide', async () => {
+await scenario('Gulf Cup row: shows immediately with zero extra connections; a real failure (not a guess) hides a channel everywhere', async () => {
   const { ctx, page } = await session();
   P.log = [];
   await page.goto('https://tv-pro.app/');
-  await page.waitForFunction(() => !document.querySelector('.gc27-checking'), null, { timeout: 15000 });
+  await page.waitForSelector('.gc27-card', { timeout: 10000 });
+  // No probing happened: opening the row cost no requests to the provider at all.
+  assert.equal(streamRequests(/^\/live\//), 0, 'the row never opens a connection just to test a channel');
   let names = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
-  assert.deepEqual(names, ['Sport: KSA 1 FHD'], 'the always-403 channel is never shown, only the one that actually plays');
+  assert.deepEqual(names.sort(), ['Sport: KSA 1 FHD', 'Sport: KSA 2 HD'], 'both are shown; neither has been tried yet, so neither is assumed broken');
   await page.click('.gc27'); await page.waitForTimeout(300);
-  await page.waitForFunction(() => { const d = document.querySelector('.gc27-sec div'); return !d || !d.textContent.includes('جارٍ البحث'); }, null, { timeout: 15000 });
   const sheetText = await page.$$eval('.gc27-ch', (bs) => bs.map((b) => b.textContent));
-  assert.ok(sheetText.length === 1 && sheetText[0].includes('KSA 1'), 'sheet agrees with the row');
+  assert.equal(sheetText.length, 2, 'sheet agrees with the row');
   await page.click('.gc27-x');
-  // Now play the bad channel directly from Live TV: a genuine 403 must hide it from the list immediately, everywhere.
+  // Now play the 403 channel for real: a genuine, durable failure hides it from the row and from Live TV, immediately.
   await page.goto('https://tv-pro.app/#/live');
   await page.getByText('Sport: KSA 2 HD').click();
   await outcome(page, 15000);
@@ -346,10 +349,13 @@ await scenario('Gulf Cup row: only verified channels shown; a real playback fail
   const badMap = await page.evaluate(() => JSON.parse(localStorage.getItem('tvpro:badchannels') || '{}'));
   const stillListed = await page.getByText('Sport: KSA 2 HD').count();
   const workingStillListed = await page.getByText('Sport: KSA 1 FHD').count();
+  await page.goto('https://tv-pro.app/');
+  const namesAfter = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
   assert.ok(Object.keys(badMap).length >= 1, 'failure recorded');
   assert.equal(stillListed, 0, 'the confirmed-bad channel disappears from Live TV without a reload');
   assert.ok(workingStillListed > 0, 'a working channel is never touched');
-  await ctx.close(); return { rowNames: names, sheetRows: sheetText.length, badCodes: Object.values(badMap).map((b) => b.code) };
+  assert.deepEqual(namesAfter, ['Sport: KSA 1 FHD'], 'the Gulf Cup row reflects the same real-world outcome');
+  await ctx.close(); return { rowNamesBefore: names, rowNamesAfter: namesAfter, badCodes: Object.values(badMap).map((b) => b.code) };
 });
 
 await browser.close();
