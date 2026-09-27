@@ -41,7 +41,7 @@ async function provider(url, init = {}) {
     const data = {
       '': { user_info: info, server_info: {} },
       get_live_categories: [{ category_id: '1', category_name: 'News' }],
-      get_live_streams: [{ stream_id: 101, name: 'Live One', num: 1, category_id: '1' }, { stream_id: 102, name: 'Live Two', num: 2, category_id: '1' }],
+      get_live_streams: [{ stream_id: 101, name: 'Live One', num: 1, category_id: '1' }, { stream_id: 102, name: 'Live Two', num: 2, category_id: '1' }, { stream_id: 501, name: 'Sport: KSA 1 FHD', num: 3, category_id: '1' }, { stream_id: 502, name: 'Sport: KSA 2 HD', num: 4, category_id: '1' }],
       get_vod_categories: [{ category_id: '2', category_name: 'Films' }],
       get_vod_streams: [{ stream_id: 201, name: 'Movie MP4', container_extension: 'mp4', category_id: '2' }, { stream_id: 202, name: 'Movie MKV', container_extension: 'mkv', category_id: '2' }],
       get_series_categories: [{ category_id: '3', category_name: 'Shows' }],
@@ -57,6 +57,7 @@ async function provider(url, init = {}) {
     if (mode === 'blocked') return new Response('Blocked', { headers: { 'content-type': 'application/vnd.apple.mpegurl' } });
     if (mode === '403') return new Response('Forbidden', { status: 403 });
     if (mode === 'timeout') return new Promise((_, rej) => init.signal && init.signal.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))));
+    if (m[1] === '502') return new Response('Forbidden', { status: 403 });
     // HTTPS providers usually answer the playlist directly (absolute segment URLs); HTTP panels redirect to a bare-IP edge.
     if (u.protocol === 'https:') return new Response(readFileSync(path.join(MEDIA, 'hls/index.m3u8'), 'utf8').replace(/^(?!#)(\S+)$/gm, `https://secure.example.com/hls/tok${m[1]}/$1`).replace(/URI="([^"]+)"/, `URI="https://secure.example.com/hls/tok${m[1]}/$1"`), { headers: { 'content-type': 'application/vnd.apple.mpegurl' } });
     return new Response(null, { status: 302, headers: { location: `http://103.163.132.49/hls/tok${m[1]}/index.m3u8` } });
@@ -323,6 +324,32 @@ await scenario('demo: 7 channels / 7 movies / 7 real series with artwork; an epi
   const upgraded = await libCounts();
   assert.deepEqual(upgraded, [7, 7, 7, 3]);
   await ctx.close(); return { counts, seriesArtwork: cards, episode: o, upgraded };
+});
+
+await scenario('Gulf Cup row: only verified channels shown; a real playback failure hides the channel app-wide', async () => {
+  const { ctx, page } = await session();
+  P.log = [];
+  await page.goto('https://tv-pro.app/');
+  await page.waitForFunction(() => !document.querySelector('.gc27-checking'), null, { timeout: 15000 });
+  let names = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
+  assert.deepEqual(names, ['Sport: KSA 1 FHD'], 'the always-403 channel is never shown, only the one that actually plays');
+  await page.click('.gc27'); await page.waitForTimeout(300);
+  await page.waitForFunction(() => { const d = document.querySelector('.gc27-sec div'); return !d || !d.textContent.includes('جارٍ البحث'); }, null, { timeout: 15000 });
+  const sheetText = await page.$$eval('.gc27-ch', (bs) => bs.map((b) => b.textContent));
+  assert.ok(sheetText.length === 1 && sheetText[0].includes('KSA 1'), 'sheet agrees with the row');
+  await page.click('.gc27-x');
+  // Now play the bad channel directly from Live TV: a genuine 403 must hide it from the list immediately, everywhere.
+  await page.goto('https://tv-pro.app/#/live');
+  await page.getByText('Sport: KSA 2 HD').click();
+  await outcome(page, 15000);
+  await page.waitForTimeout(500);
+  const badMap = await page.evaluate(() => JSON.parse(localStorage.getItem('tvpro:badchannels') || '{}'));
+  const stillListed = await page.getByText('Sport: KSA 2 HD').count();
+  const workingStillListed = await page.getByText('Sport: KSA 1 FHD').count();
+  assert.ok(Object.keys(badMap).length >= 1, 'failure recorded');
+  assert.equal(stillListed, 0, 'the confirmed-bad channel disappears from Live TV without a reload');
+  assert.ok(workingStillListed > 0, 'a working channel is never touched');
+  await ctx.close(); return { rowNames: names, sheetRows: sheetText.length, badCodes: Object.values(badMap).map((b) => b.code) };
 });
 
 await browser.close();
