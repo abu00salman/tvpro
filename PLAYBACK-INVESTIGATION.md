@@ -108,3 +108,40 @@ why the first version found only 1 classic film: search from the phone failed. T
 test, Apple bip-bop, Mux, bitdash, Unified Streaming) did not play on the user's phone and were removed. An existing
 demo library is upgraded automatically on the next visit (`demoVersion` 3). Tests: `tests/demo.test.mjs` (4) and the
 demo e2e scenario (7/7/7, artwork, an episode plays, automatic upgrade).
+
+## v6 update: full playback audit (`fix/playback-v6`)
+
+A second, ground-up audit of `index.html`, the compiled bundle, both gateways, `sw.js`, `diag.html` and the commit
+history, prompted by a real user report and a `diag.html` session against their actual subscription. Confirmed
+correct and left unchanged: no parallel gateway probing, Deno tried before Cloudflare, a hard 3-attempt budget per
+play, VLC/Infuse offered only for `UNSUPPORTED_*`/VOD failures, series episode URLs built from the episode's own
+`id` (never `series_id`), movie/episode URLs built from the real `container_extension` (never renamed), `sw.js`
+never touches any cross-origin request (all stream/gateway/provider traffic is same-origin-only-excluded, so it's
+never cached), `diag.html` redacts credentials and never opens a stream on page load.
+
+Two real bugs found in the URL resolver itself (`ed()` in the page bundle) and fixed:
+
+1. **A raw `.ts` URL from an M3U-sourced channel was silently rewritten to `.m3u8`** before ever being tried,
+   regardless of whether that provider actually serves a working HLS variant for that stream id. Removed the
+   rewrite; the source's own URL is now used as given.
+2. **A live channel built from the Xtream API always got `ext:"m3u8"` hardcoded**, regardless of the account's own
+   `allowed_output_formats` from `player_api.php`. An account that only lists `ts` still got an `.m3u8` URL and
+   would fail for a reason unrelated to the gateway or the channel. The resolver now reads
+   `allowed_output_formats` once at login and prefers `m3u8` when offered (it degrades best through the gateway's
+   playlist rewrite), otherwise `ts`, falling back to `m3u8` only when the field is missing.
+
+Also removed `TVPRO-GATEWAY-v3.js`: an older, unreferenced Cloudflare Worker (no bare-IP/port checks, no error
+classification) superseded by `cloudflare-worker.js`, which is what `wrangler.toml` actually deploys. Keeping it in
+the repo risked a future change being made against the wrong file.
+
+**Known, disclosed limitation — not fixed this round.** A bare `.ts` URL has no HLS structure, so handing it
+straight to `<video src>` is not guaranteed to play in every browser (Chromium in particular has no built-in raw
+MPEG-TS demuxer). A real fix needs an MSE-based TS demuxer (e.g. `mpegts.js`) wired in as a third playback engine
+alongside native HLS and hls.js, gated to ts-only sources. This was intentionally *not* added blind: it's a new
+dependency and a new playback path that needs verification against a real ts-only Xtream provider, which this
+sandboxed environment cannot reach. The resolver fix above at least ensures the *right* URL is requested; closing
+the remaining gap is the natural next step once someone can test it against a real ts-only account.
+
+Tests: `tests/gateway.test.mjs` + `tests/demo.test.mjs` (70/70, unchanged) and `tests/e2e/playback.e2e.mjs`, now 15
+scenarios — added "Xtream account with no m3u8 in allowed_output_formats gets a `.ts` live URL, not a forced
+`.m3u8`" (proves the resolver fix; does not assert playback of the bare `.ts` response, per the limitation above).
