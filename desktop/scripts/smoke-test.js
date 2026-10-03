@@ -116,6 +116,20 @@ app.whenReady().then(async () => {
     ok('desktop VLC/Infuse button fix: click intercepted, original iOS-scheme handler blocked, correct .ts URL bridged across the isolation boundary');
   } catch (e) { fail('external-player button interception failed: ' + e.message); }
 
+  try {
+    // "Help -> Open connection diagnostics" sends this IPC message; the website bundle has no idea app:// or
+    // this menu exist, so preload.js itself must navigate to diag.html (a gap found and fixed after the first
+    // real-Mac test run: the menu item previously did nothing at all).
+    const navigated = new Promise((resolve, reject) => {
+      win.webContents.once('did-navigate', (_e, url) => resolve(url));
+      setTimeout(() => reject(new Error('did not navigate within 5s')), 5000);
+    });
+    win.webContents.send('menu:open-diagnostics');
+    const url = await navigated;
+    assert.ok(url.endsWith('/diag.html'), 'expected navigation to diag.html, got ' + url);
+    ok('Help menu "open diagnostics" navigates to diag.html: ' + url);
+  } catch (e) { fail('menu diagnostics navigation failed: ' + e.message); }
+
   if (consoleErrors.length) {
     console.warn('(page console errors — likely just blocked network calls in this sandboxed environment, see below)');
     consoleErrors.slice(0, 5).forEach((m) => console.warn('  ' + m.slice(0, 200)));

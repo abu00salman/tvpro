@@ -78,6 +78,12 @@ document.addEventListener(EXTERNAL_PLAYER_BRIDGE_EVENT, (e) => {
   invoke('app:openInExternalPlayer', app, url).catch(() => {});
 });
 
+// "Help -> Open connection diagnostics" in the native menu (src/menu.js) sends this; the website bundle has no
+// idea this app:// scheme or this menu exists, so there is nobody else to navigate to diag.html on its behalf —
+// do it directly here. (onOpenDiagnostics above stays available in case a future bundle build wants to react to
+// the menu action itself, e.g. to show something inline instead of navigating away.)
+ipcRenderer.on('menu:open-diagnostics', () => { location.href = 'app://tvpro/diag.html'; });
+
 contextBridge.exposeInMainWorld('tvproDesktop', {
   isDesktop: true,
   platform: process.platform,
