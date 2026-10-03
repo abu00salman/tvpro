@@ -1,9 +1,10 @@
 'use strict';
 // All IPC entry points the renderer can reach, in one place. Every handler re-validates the sender frame's
 // origin (assertTrustedSender) and the shape of its input; nothing here ever logs a credential value.
-const { app, ipcMain, shell } = require('electron');
+const { app, ipcMain, shell, BrowserWindow } = require('electron');
 const secureStore = require('./secureStore');
 const { SCHEME } = require('./appProtocol');
+const { openInExternalPlayer } = require('./externalPlayer');
 
 function assertTrustedSender(event) {
   const frameUrl = event.senderFrame && event.senderFrame.url;
@@ -25,6 +26,13 @@ function registerIpcHandlers() {
     assertTrustedSender(event);
     if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new Error('only https:// links may be opened externally');
     return shell.openExternal(url);
+  });
+  ipcMain.handle('app:openInExternalPlayer', (event, appKey, url) => {
+    assertTrustedSender(event);
+    if (appKey !== 'vlc' && appKey !== 'infuse') throw new Error('unknown external player');
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) throw new Error('invalid stream url');
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return openInExternalPlayer(appKey, url, win);
   });
 }
 

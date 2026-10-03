@@ -88,6 +88,34 @@ app.whenReady().then(async () => {
     }
   } catch (e) { fail('secure storage IPC failed: ' + e.message); }
 
+  try {
+    // Simulate the website's own "Open in VLC" button (built by ext.js inside [data-tvpro-ext]) and confirm the
+    // desktop-only interceptor in preload.js (a) fires on a real click, (b) correctly derives the .ts stream URL
+    // from window.__tvproSrc the same way the website's own extSrc() does, and (c) blocks the original (broken,
+    // iOS-only vlc-x-callback://) button handler from running at all.
+    const result = await win.webContents.executeJavaScript(`(function(){
+      return new Promise(function(resolve){
+        window.__tvproSrc = 'http://panel.example.com/live/u/p/501.m3u8';
+        window.__tvproLive = true;
+        var originalHandlerRan = false;
+        var panel = document.createElement('div'); panel.setAttribute('data-tvpro-ext','1');
+        var btn = document.createElement('button'); btn.textContent = 'افتح في VLC';
+        btn.onclick = function(){ originalHandlerRan = true; };
+        panel.appendChild(btn); document.body.appendChild(panel);
+        document.addEventListener('tvpro-desktop-open-external-player', function(e){
+          resolve({ detail: e.detail, originalHandlerRan: originalHandlerRan });
+        }, { once: true });
+        btn.click();
+        setTimeout(function(){ resolve({ timeout: true, originalHandlerRan: originalHandlerRan }); }, 2000);
+      });
+    })()`);
+    assert.equal(result.timeout, undefined, 'the bridge event never fired (main-world injection or cross-world dispatch failed)');
+    assert.equal(result.originalHandlerRan, false, 'the broken iOS-scheme button handler ran anyway (should have been blocked)');
+    assert.equal(result.detail.app, 'vlc');
+    assert.equal(result.detail.url, 'http://panel.example.com/live/u/p/501.ts', 'did not convert .m3u8 -> .ts the same way the website\'s own extSrc() does');
+    ok('desktop VLC/Infuse button fix: click intercepted, original iOS-scheme handler blocked, correct .ts URL bridged across the isolation boundary');
+  } catch (e) { fail('external-player button interception failed: ' + e.message); }
+
   if (consoleErrors.length) {
     console.warn('(page console errors — likely just blocked network calls in this sandboxed environment, see below)');
     consoleErrors.slice(0, 5).forEach((m) => console.warn('  ' + m.slice(0, 200)));
