@@ -1,0 +1,79 @@
+{
+  "name": "tvpro-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TV Pro — official desktop app (Electron shell around the tv-pro.app web app)",
+  "main": "src/main.js",
+  "author": "TV Pro",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build:site": "node scripts/build-site.js",
+    "build:icons": "node scripts/build-icons.js",
+    "predev": "npm run build:site",
+    "dev": "electron . --dev",
+    "prestart": "npm run build:site",
+    "start": "electron .",
+    "test:local-proxy": "node scripts/test-local-proxy.js",
+    "smoke": "npm run build:site && electron scripts/smoke-test.js --no-sandbox",
+    "prepack": "npm run build:site && npm run build:icons",
+    "pack": "electron-builder --dir",
+    "predist:mac": "npm run build:site && npm run build:icons",
+    "dist:mac": "electron-builder --mac --universal",
+    "predist:mac:arm64": "npm run build:site && npm run build:icons",
+    "dist:mac:arm64": "electron-builder --mac --arm64",
+    "predist:mac:x64": "npm run build:site && npm run build:icons",
+    "dist:mac:x64": "electron-builder --mac --x64",
+    "predist:win": "npm run build:site && npm run build:icons",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "png2icons": "^2.0.1"
+  },
+  "build": {
+    "appId": "app.tv-pro.desktop",
+    "productName": "TV Pro",
+    "copyright": "TV Pro",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "site/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../tvpro-gateway-deno.ts", "to": "tvpro-gateway-deno.ts" }
+    ],
+    "mac": {
+      "category": "public.app-category.entertainment",
+      "icon": "build/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "zip", "arch": ["universal"] }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "TV Pro ${version}",
+      "sign": false
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": null
+  }
+}
