@@ -134,14 +134,29 @@ Also removed `TVPRO-GATEWAY-v3.js`: an older, unreferenced Cloudflare Worker (no
 classification) superseded by `cloudflare-worker.js`, which is what `wrangler.toml` actually deploys. Keeping it in
 the repo risked a future change being made against the wrong file.
 
-**Known, disclosed limitation — not fixed this round.** A bare `.ts` URL has no HLS structure, so handing it
-straight to `<video src>` is not guaranteed to play in every browser (Chromium in particular has no built-in raw
-MPEG-TS demuxer). A real fix needs an MSE-based TS demuxer (e.g. `mpegts.js`) wired in as a third playback engine
-alongside native HLS and hls.js, gated to ts-only sources. This was intentionally *not* added blind: it's a new
-dependency and a new playback path that needs verification against a real ts-only Xtream provider, which this
-sandboxed environment cannot reach. The resolver fix above at least ensures the *right* URL is requested; closing
-the remaining gap is the natural next step once someone can test it against a real ts-only account.
+**Follow-up: the mpegts.js gap above is now closed.** A bare `.ts` live URL used to fall into the hls.js branch of
+the engine picker, which cannot parse raw MPEG-TS as an HLS manifest and fails outright on every non-Safari
+browser. Found and fixed by comparing TV Pro's engine picker against two reference open-source IPTV players
+(`github.com/Talha-Ashraf420/lumen`, `github.com/kvnpyy/streamly`): `lumen` uses exactly this technique
+(mpegts.js over MSE for raw-TS live, hls.js for `.m3u8`, native for simple containers) and confirms it as the
+standard, working approach — not a guess. The engine picker now tries `mpegts.js` first for a live source that is
+neither an HLS playlist nor a simple native container, falling back to the previous (Safari-native / hls.js)
+attempt unchanged if mpegts.js fails to load or isn't supported, so there is no regression risk for any source
+that already worked. `mpegts.js` (Apache-2.0, v1.7.3) is vendored same-origin at
+`/_next/static/vendor/mpegts.min.js` rather than loaded from a CDN: the site's own CSP
+(`script-src 'self' 'unsafe-inline'`) blocks any cross-origin `<script src>` outright — confirmed while testing
+this, not assumed — so a same-origin file is the only way a lazily-loaded script tag works here at all, and it
+also removes a third-party runtime dependency. `streamly`'s approach to MKV/HEVC (server-side ffmpeg
+transcoding to HLS on demand) was considered and **not** adopted: it needs a real server process with ffmpeg
+installed, which neither Cloudflare Workers nor the Deno edge gateway can run (no persistent process, no ffmpeg
+binary, strict CPU/time limits) — a legitimate idea, but a separate infrastructure project, not a patch to this
+static-site-plus-edge-gateway architecture.
 
 Tests: `tests/gateway.test.mjs` + `tests/demo.test.mjs` (70/70, unchanged) and `tests/e2e/playback.e2e.mjs`, now 15
-scenarios — added "Xtream account with no m3u8 in allowed_output_formats gets a `.ts` live URL, not a forced
-`.m3u8`" (proves the resolver fix; does not assert playback of the bare `.ts` response, per the limitation above).
+scenarios. The ts-only-account scenario now also asserts that the real, unmodified vendored `mpegts.js` is
+actually requested and loaded (not stubbed) for a raw `.ts` live source, and that an unparseable stream (the mock
+provider's `.ts` response is a real file but not genuine MPEG-TS data) still fails safely within the normal
+attempt budget through the new engine. Real playback of a genuine MPEG-TS stream could not be tested — there is
+no such fixture (and no `ffmpeg` to generate one) in this sandbox — so the engine's successful-decode path is
+unverified; everything up to that point (selection, loading, attaching, and failure handling) is verified for
+real, not assumed.
