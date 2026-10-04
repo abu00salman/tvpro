@@ -160,3 +160,64 @@ attempt budget through the new engine. Real playback of a genuine MPEG-TS stream
 no such fixture (and no `ffmpeg` to generate one) in this sandbox — so the engine's successful-decode path is
 unverified; everything up to that point (selection, loading, attaching, and failure handling) is verified for
 real, not assumed.
+
+## "Open in VLC/Infuse" panel removed
+
+Removed site-wide at the user's explicit request, after a real iPhone failure (HEVC, genuinely unsupported) still
+showed it. `actionable()` in the appended helper script now always returns `false`, so `scan()` never opens the
+panel for any error, device, or VOD/live source. Nothing else in the failure path changed: container pre-check,
+codec/format classification, the known-bad-channel memory, and the plain error+retry UI are all unchanged. A
+plain error message is what the user now sees instead.
+
+## FFmpeg restream fallback (`restream/`)
+
+A fourth, **optional**, last-resort fallback for VOD/series sources whose container or codec the browser itself
+cannot open (`UNSUPPORTED_CONTAINER` / `UNSUPPORTED_CODEC` / `UNSUPPORTED_STREAM_FORMAT`) — the one failure class
+no proxy or manifest rewrite can fix, because the problem isn't the network path, it's the bytes. `streamly`'s
+server-side-transcode idea (see above) was right in principle but can't run on Cloudflare Workers or the Deno edge
+gateway (no persistent process, no `ffmpeg` binary, strict CPU/time limits), so it ships as a **separate,
+self-hosted** Node+ffmpeg HTTP service (`restream/server.js`) meant to run on your own Docker host/VPS
+(Hetzner/Railway/Render/etc.) — never on Cloudflare or Deno, and never required for the site to work.
+
+- **Opt-in only**: off unless `localStorage["tvpro:restreamUrl"]` is set to the server's own URL. Read once at
+  page load.
+- **VOD/series only, never live**: starting an ffmpeg remux opens a second real connection to the provider for
+  the whole remux duration — exactly the "extra connection" mistake this project already learned not to make for
+  live channels (`max_connections` is often 1). A live failure a restream couldn't fix either way (it's a
+  connectivity problem, not a container problem) never triggers it.
+- **Remux only, not re-encode** (`-c copy`): kept deliberately cheap — no CPU-heavy transcode, just repackaging
+  the existing audio/video streams into fragmented HLS (`-f hls -hls_time 4 ...`) so a small VPS can serve several
+  sessions.
+- **Tried once per source, only for the three `UNSUPPORTED_*` codes**, and only if the player hasn't already
+  navigated away by the time the restream server responds (checked via `window.__tvproGetSource()` against the
+  original URL) — it never hijacks whatever the user is watching now.
+- **Independent SSRF guard**: `restream/server.js` has its own small blocklist (private IPv4/IPv6 ranges,
+  loopback, link-local, cloud metadata addresses) — it does not import the Deno gateway's `isBlockedHost()`
+  because that file only exports its `fetch` handler, not its internal helpers. Documented here as an intentional,
+  independent reimplementation, not an unnoticed duplication.
+- **Bounded**: a concurrency cap (`RESTREAM_MAX_CONCURRENT`, default 2) and an idle-session reaper
+  (`RESTREAM_IDLE_MS`, default 5 min) so an abandoned remux doesn't run forever.
+
+Bundle-side wiring exposes two new hooks (`window.__tvproGetSource`, `window.__tvproReloadSource`) alongside the
+existing `window.__tvproPlay`, and the appended helper script's `tryRestream()` calls the restream server's
+`/restream/start?url=...` endpoint and, on success, reloads the player onto the returned HLS playlist — all inside
+the existing `window.__tvproClassify` pipeline, so no UI or routing code needed to change.
+
+**Verified**: `restream/test-server.mjs` (a plain-Node smoke test against a fake `ffmpeg` stand-in — health,
+SSRF guard, session start/serve, path-traversal rejection, concurrency cap, idle cleanup: 9/9 checks) plus a
+separate, real-`ffmpeg` CLI verification done directly in this sandbox (install ffmpeg, generate a real
+H.264/AAC-in-MKV test file, serve it over real HTTP, run the server's exact remux command, confirm via `ffprobe`
+that the output HLS segment preserves the same codec streams — a clean remux, not corruption). The full chain end
+to end through the real compiled bundle (classification → restream request → `__tvproReloadSource` → playing) is
+covered by a new e2e scenario in `tests/e2e/playback.e2e.mjs` (16th scenario), using a real H.264/AAC `movie.mkv`
+fixture this sandbox's Chromium genuinely cannot decode (it has no H.264 support), so the failure and fallback are
+both real, not simulated.
+
+**Not verified from this sandbox**: building/running the provided `Dockerfile` (the Docker daemon cannot start
+here — nested Docker is unsupported in this environment), and real IPTV-provider playback end to end (as has been
+true throughout this project, there is no live provider reachable from this sandbox). The Dockerfile's
+`apk add ffmpeg` pattern on `node:20-alpine` is standard and well-documented, not guessed, but was not built here.
+
+Tests: `tests/gateway.test.mjs` + `tests/demo.test.mjs` (70/70, unchanged) and `tests/e2e/playback.e2e.mjs`, now 16
+scenarios (the VLC/Infuse popup-removal assertion folded into the existing MKV/iPhone scenario, plus the new
+restream scenario above).

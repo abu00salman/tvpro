@@ -4,8 +4,10 @@
 //
 //   TVPRO_MEDIA=/path/to/media node tests/e2e/playback.e2e.mjs
 //
-// TVPRO_MEDIA must contain hls/index.m3u8 (+ init.mp4, seg*.m4s), movie.mp4 and movie.mkv, encoded as VP9/Opus
-// (Playwright's Chromium has no H.264). Requires `playwright`; set CHROMIUM to a browser binary if needed.
+// TVPRO_MEDIA must contain hls/index.m3u8 (+ init.mp4, seg*.m4s) and movie.mp4, encoded as VP9/Opus (Playwright's
+// Chromium has no H.264), plus movie.mkv encoded as H.264/AAC -- deliberately a codec this Chromium cannot decode,
+// so the container/codec-failure and restream-fallback scenarios exercise a genuine, unforced MediaError instead of
+// one only Safari/iOS would hit. Requires `playwright`; set CHROMIUM to a browser binary if needed.
 import { chromium } from 'playwright';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -85,10 +87,12 @@ globalThis.fetch = async (url, init) => {
 const TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain' };
 const GW_HOSTS = { 'great-fox-5853.abu00salmanr.deno.net': 'deno', 'tvpro-gateway.rmz.deno.net': 'deno', 'gateway.tv-pro.app': 'cloudflare', 'tvpro-gateway.abu00salman-r.workers.dev': 'cloudflare' };
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium' });
+let restreamLog = [];
 
 async function session(opts = {}) {
   const server = opts.server || 'http://panel.example.com';
   const ctx = await browser.newContext({ serviceWorkers: 'block', ...(opts.userAgent ? { userAgent: opts.userAgent } : {}) });
+  if (opts.localStorage) await ctx.addInitScript((kv) => { for (const k in kv) localStorage.setItem(k, kv[k]); }, opts.localStorage);
   const hits = [], direct = [];
   await ctx.route('**/*', async (route) => {
     const req = route.request(), u = new URL(req.url());
@@ -106,6 +110,15 @@ async function session(opts = {}) {
       if (opts.cors !== false) headers['access-control-allow-origin'] = '*';
       if (res.status >= 300 && res.status < 400) return route.fulfill({ status: res.status, headers });
       return route.fulfill({ status: res.status, headers, body: Buffer.from(await res.arrayBuffer()) });
+    }
+    if (u.host === 'restream.example.com') {
+      if (u.pathname === '/restream/start') { restreamLog.push(u.searchParams.get('url')); return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ id: 'mockid', playlistUrl: '/restream/mockid/index.m3u8' }) }); }
+      let r = null;
+      if (u.pathname === '/restream/mockid/index.m3u8') r = file('hls/index.m3u8', 'application/vnd.apple.mpegurl');
+      else if (/^\/restream\/mockid\/(init\.mp4|seg\d+\.m4s)$/.test(u.pathname)) r = file('hls/' + u.pathname.split('/').pop(), 'video/mp4', req.headers()['range']);
+      if (!r) return route.fulfill({ status: 404 });
+      const headers = {}; r.headers.forEach((v, k) => { headers[k] = v; }); headers['access-control-allow-origin'] = '*';
+      return route.fulfill({ status: r.status, headers, body: Buffer.from(await r.arrayBuffer()) });
     }
     const gw = GW_HOSTS[u.host];
     if (gw) {
@@ -394,6 +407,29 @@ await scenario('Gulf Cup row: shows immediately with zero extra connections; a r
   assert.ok(workingStillListed > 0, 'a working channel is never touched');
   assert.deepEqual(namesAfter, ['Sport: KSA 1 FHD'], 'the Gulf Cup row reflects the same real-world outcome');
   await ctx.close(); return { rowNamesBefore: names, rowNamesAfter: namesAfter, badCodes: Object.values(badMap).map((b) => b.code) };
+});
+
+await scenario('movie MKV on desktop Chrome, with a restream server configured, falls back DIRECT → RESTREAM and plays', async () => {
+  // Desktop Chrome has no IOS/SAFARI precheck shortcut, so it actually tries the real <video> element on the
+  // .mkv source, gets a genuine MediaError (Chrome has no Matroska demuxer) classified UNSUPPORTED_CONTAINER,
+  // and -- because a restream server URL is configured -- tryRestream() asks it to remux the same source and
+  // reloads the player onto the HLS playlist it returns. This proves the whole chain end to end through the
+  // real compiled bundle: classification → restream request → __tvproReloadSource → playing.
+  restreamLog = [];
+  const { ctx, page } = await session({ localStorage: { 'tvpro:restreamUrl': 'https://restream.example.com' } });
+  P.log = [];
+  await page.goto('https://tv-pro.app/#/movies'); await page.getByText('Movie MKV').first().click();
+  await page.getByRole('button', { name: /^(Play|Resume)$/ }).first().click();
+  const o = await outcome(page, 20000);
+  const log = await lastLog(page);
+  const code = (log.filter((e) => e.code).shift() || {}).code;
+  const restreamed = log.some((e) => e.ev === 'restream' && e.code === 'RESTREAM_START');
+  assert.equal(o, 'playing', 'the restream fallback lets an otherwise-unplayable container play');
+  assert.equal(code, 'UNSUPPORTED_CONTAINER', 'the native attempt is classified before restream is tried');
+  assert.ok(restreamed, 'a restream start was logged');
+  assert.equal(restreamLog.length, 1, 'the restream server was asked exactly once');
+  assert.ok(/202\.mkv$/.test(restreamLog[0] || ''), 'the real source URL was sent to the restream server: ' + restreamLog[0]);
+  await ctx.close(); return { outcome: o, code, restreamed, restreamUrl: restreamLog[0] };
 });
 
 await browser.close();
