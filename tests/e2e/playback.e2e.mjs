@@ -214,17 +214,23 @@ await scenario('movie MP4 (container_extension=mp4) plays; URL /movie/tvuser/s3c
   assert.equal(o, 'playing'); assert.deepEqual(paths, ['/movie/tvuser/s3cretpass/201.mp4']);
   await ctx.close(); return { outcome: o, urls: paths, rangeRequests: streamRequests(/^\/movie\//) };
 });
-await scenario('movie MKV on iPhone Safari → UNSUPPORTED_CONTAINER, external player offered, ZERO provider requests', async () => {
+await scenario('movie MKV on iPhone Safari → UNSUPPORTED_CONTAINER classified, ZERO provider requests, no external-player popup', async () => {
+  // The "Open in VLC/Infuse" popup was removed site-wide at the user's explicit request (it used iOS-only
+  // vlc-x-callback://infuse:// links that didn't work on desktop, and the user decided a plain error with no
+  // popup was preferable to keeping it, even for the one case -- unsupported codec/container -- it was built
+  // for). The underlying detection (fast container pre-check, zero provider connections, correct classification)
+  // is unchanged; only the popup UI is gone now.
   const { ctx, page } = await session({ userAgent: IPHONE });
   P.log = [];
   await page.goto('https://tv-pro.app/#/movies'); await page.getByText('Movie MKV').first().click();
   await page.getByRole('button', { name: /^(Play|Resume)$/ }).first().click();
   assert.equal(await outcome(page), 'error');
-  await page.waitForSelector('[data-tvpro-ext]');
-  const buttons = await page.$$eval('[data-tvpro-ext] button', (b) => b.map((x) => x.textContent));
+  await page.waitForTimeout(1000);
+  const popup = await page.locator('[data-tvpro-ext]').count();
   const n = streamRequests(/^\/movie\//), code = ((await lastLog(page)).filter((e) => e.code).pop() || {}).code;
   assert.equal(n, 0); assert.equal(code, 'UNSUPPORTED_CONTAINER');
-  await ctx.close(); return { providerRequests: n, code, buttons };
+  assert.equal(popup, 0, 'the external-player popup must never appear anymore, even for an unsupported container');
+  await ctx.close(); return { providerRequests: n, code, popupShown: popup > 0 };
 });
 await scenario('series episode (container_extension=mp4) → /series/tvuser/s3cretpass/401.mp4 plays', async () => {
   const { ctx, page } = await session();

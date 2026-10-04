@@ -95,7 +95,7 @@ function open(src,A){close();panelSrc=src;var p=document.createElement("div");p.
  p.appendChild(note);document.body.appendChild(p);panel=p;
  /* explain upstream refusals with evidence from the provider's own API, never by guessing */
  var le=window.__tvproLastError||{};if(le.code&&!/^UNSUPPORTED_/.test(le.code)&&XT.test(window.__tvproSrc||""))accountCheck(window.__tvproSrc).then(function(u){var v=accountVerdict(u);log({t:new Date().toISOString(),ev:"account",code:v?v.code:"ACCOUNT_UNKNOWN",detail:v&&v.info||""});if(panel!==p||!v||v.code==="ACCOUNT_OK")return;info.textContent=A?v.ar:v.en;info.style.display="block";info.style.color="#ffb4a8"})}
-function actionable(){var le=window.__tvproLastError||{};if(/^UNSUPPORTED_/.test(le.code))return true;return!window.__tvproLive}
+function actionable(){return false}
 function scan(){if(!actionable()){close();dismissed=null;return}var src=extSrc(),alerts=document.querySelectorAll('[role="alert"]'),hit=null;for(var i=0;i<alerts.length&&!hit;i++){var tx=alerts[i].textContent||"";for(var j=0;j<ERR.length;j++)if(tx.indexOf(ERR[j])>=0){hit=alerts[i];break}}
  if(!hit||!src){close();if(!hit)dismissed=null;return}if(dismissed===src)return;if(panel&&panelSrc===src)return;open(src,/[؀-ۿ]/.test(hit.textContent||""))}
 var pend=0;new MutationObserver(function(){if(pend)return;pend=1;setTimeout(function(){pend=0;scan()},150)}).observe(document.documentElement,{childList:true,subtree:true,characterData:true});
