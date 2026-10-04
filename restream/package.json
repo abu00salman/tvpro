@@ -1,0 +1,12 @@
+{
+  "name": "tvpro-restream",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TV Pro — optional FFmpeg restream fallback server (runs on your own Docker host/VPS, not Cloudflare/Deno)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-server.mjs"
+  },
+  "engines": { "node": ">=18" }
+}
