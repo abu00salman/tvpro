@@ -37,7 +37,7 @@ async function provider(url, init = {}) {
   if (u.pathname === '/player_api.php') {
     if (u.searchParams.get('password') !== 's3cretpass') return json({ user_info: { auth: 0 } });
     const a = u.searchParams.get('action');
-    const info = { auth: P.mode.auth ?? 1, status: P.mode.status || 'Active', max_connections: '1', active_cons: P.mode.active || '0', allowed_output_formats: ['m3u8', 'ts'] };
+    const info = { auth: P.mode.auth ?? 1, status: P.mode.status || 'Active', max_connections: '1', active_cons: P.mode.active || '0', allowed_output_formats: P.mode.formats || ['m3u8', 'ts'] };
     const data = {
       '': { user_info: info, server_info: {} },
       get_live_categories: [{ category_id: '1', category_name: 'News' }],
@@ -52,6 +52,11 @@ async function provider(url, init = {}) {
     return json(data ?? []);
   }
   let m;
+  if ((m = /^\/live\/tvuser\/s3cretpass\/(\d+)\.ts$/.exec(u.pathname))) {
+    // an account whose allowed_output_formats has no m3u8 gets a .ts URL built for it instead; the provider here
+    // answers with a raw MPEG-TS segment (not a playlist) for that URL, exactly as a ts-only Xtream panel would.
+    return file('hls/seg0.m4s', 'video/mp2t', hdr('Range'));
+  }
   if ((m = /^\/live\/tvuser\/s3cretpass\/(\d+)\.m3u8$/.exec(u.pathname))) {
     const mode = P.mode.live;
     if (mode === 'blocked') return new Response('Blocked', { headers: { 'content-type': 'application/vnd.apple.mpegurl' } });
@@ -231,6 +236,32 @@ await scenario('series episode (container_extension=mp4) → /series/tvuser/s3cr
   assert.equal(o, 'playing'); assert.deepEqual(paths, ['/series/tvuser/s3cretpass/401.mp4']);
   await ctx.close(); return { outcome: o, urls: paths };
 });
+await scenario('Xtream account with no m3u8 in allowed_output_formats gets a .ts live URL, not a forced .m3u8', async () => {
+  // Regression test for a real bug found auditing the resolver: live URLs used to hardcode ".m3u8" regardless of
+  // what the account's own player_api response says it supports. A ts-only provider would get a URL it never
+  // advertised, and fail for a reason that has nothing to do with the gateway or the channel itself.
+  P.mode.formats = ['ts']; // read once, during login's initial library fetch -- must be set before session() connects
+  const { ctx, page } = await session();
+  let mpegtsRequested = false;
+  page.on('request', (req) => { if (req.url().includes('/_next/static/vendor/mpegts.min.js')) mpegtsRequested = true; });
+  P.log = [];
+  await page.goto('https://tv-pro.app/#/live'); await page.getByText('Live One').first().click();
+  const o = await outcome(page, 15000);
+  const tsRequests = streamRequests(/^\/live\/tvuser\/s3cretpass\/\d+\.ts$/);
+  const m3u8Requests = streamRequests(/^\/live\/tvuser\/s3cretpass\/\d+\.m3u8$/);
+  assert.equal(m3u8Requests, 0, 'never requests .m3u8 for an account that does not advertise it');
+  assert.ok(tsRequests >= 1, 'requests the .ts URL the account actually allows');
+  // A raw .ts live source now tries mpegts.js first (see mpegts-engine.js), vendored same-origin (the real,
+  // unmodified library file, served here exactly as the live site serves it -- not a stub). The mock provider's
+  // ".ts" response here is a real file but not actually valid MPEG-TS data, so mpegts.js's own demuxer rejects it
+  // and the player still reaches a terminal error within its normal attempt budget -- proving both that the new
+  // engine is really exercised (not skipped) and that a bad/unparseable stream still fails safely (no hang),
+  // exactly as it did before this engine existed. Real playback of a genuine MPEG-TS stream could not be tested
+  // (no such test fixture in this sandbox), but the engine selection, loading, and failure path are all real.
+  assert.ok(mpegtsRequested, 'a raw .ts live source should load the real, vendored mpegts.js');
+  assert.equal(o, 'error', 'an unparseable stream still reaches a terminal state through the new engine (no hang)');
+  await ctx.close(); return { tsRequests, m3u8Requests, mpegtsRequested, outcome: o };
+});
 await scenario('all gateways unreachable → bounded attempts and a classified error (no endless spinner)', async () => {
   const { ctx, page, hits } = await session({});
   await ctx.unroute('**/*').catch(() => {});
@@ -350,6 +381,7 @@ await scenario('Gulf Cup row: shows immediately with zero extra connections; a r
   const stillListed = await page.getByText('Sport: KSA 2 HD').count();
   const workingStillListed = await page.getByText('Sport: KSA 1 FHD').count();
   await page.goto('https://tv-pro.app/');
+  await page.waitForSelector('.gc27-card', { timeout: 10000 });
   const namesAfter = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
   assert.ok(Object.keys(badMap).length >= 1, 'failure recorded');
   assert.equal(stillListed, 0, 'the confirmed-bad channel disappears from Live TV without a reload');

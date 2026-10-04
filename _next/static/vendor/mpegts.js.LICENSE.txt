@@ -1,0 +1,8 @@
+mpegts.js v1.7.3 (vendored as mpegts.min.js)
+https://github.com/xqq/mpegts.js
+
+Licensed under the Apache License, Version 2.0.
+http://www.apache.org/licenses/LICENSE-2.0
+
+Vendored locally (same-origin) instead of loaded from a CDN so it satisfies this site's
+Content-Security-Policy (script-src 'self' 'unsafe-inline') without weakening it.

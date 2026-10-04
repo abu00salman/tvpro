@@ -108,3 +108,55 @@ why the first version found only 1 classic film: search from the phone failed. T
 test, Apple bip-bop, Mux, bitdash, Unified Streaming) did not play on the user's phone and were removed. An existing
 demo library is upgraded automatically on the next visit (`demoVersion` 3). Tests: `tests/demo.test.mjs` (4) and the
 demo e2e scenario (7/7/7, artwork, an episode plays, automatic upgrade).
+
+## v6 update: full playback audit (`fix/playback-v6`)
+
+A second, ground-up audit of `index.html`, the compiled bundle, both gateways, `sw.js`, `diag.html` and the commit
+history, prompted by a real user report and a `diag.html` session against their actual subscription. Confirmed
+correct and left unchanged: no parallel gateway probing, Deno tried before Cloudflare, a hard 3-attempt budget per
+play, VLC/Infuse offered only for `UNSUPPORTED_*`/VOD failures, series episode URLs built from the episode's own
+`id` (never `series_id`), movie/episode URLs built from the real `container_extension` (never renamed), `sw.js`
+never touches any cross-origin request (all stream/gateway/provider traffic is same-origin-only-excluded, so it's
+never cached), `diag.html` redacts credentials and never opens a stream on page load.
+
+Two real bugs found in the URL resolver itself (`ed()` in the page bundle) and fixed:
+
+1. **A raw `.ts` URL from an M3U-sourced channel was silently rewritten to `.m3u8`** before ever being tried,
+   regardless of whether that provider actually serves a working HLS variant for that stream id. Removed the
+   rewrite; the source's own URL is now used as given.
+2. **A live channel built from the Xtream API always got `ext:"m3u8"` hardcoded**, regardless of the account's own
+   `allowed_output_formats` from `player_api.php`. An account that only lists `ts` still got an `.m3u8` URL and
+   would fail for a reason unrelated to the gateway or the channel. The resolver now reads
+   `allowed_output_formats` once at login and prefers `m3u8` when offered (it degrades best through the gateway's
+   playlist rewrite), otherwise `ts`, falling back to `m3u8` only when the field is missing.
+
+Also removed `TVPRO-GATEWAY-v3.js`: an older, unreferenced Cloudflare Worker (no bare-IP/port checks, no error
+classification) superseded by `cloudflare-worker.js`, which is what `wrangler.toml` actually deploys. Keeping it in
+the repo risked a future change being made against the wrong file.
+
+**Follow-up: the mpegts.js gap above is now closed.** A bare `.ts` live URL used to fall into the hls.js branch of
+the engine picker, which cannot parse raw MPEG-TS as an HLS manifest and fails outright on every non-Safari
+browser. Found and fixed by comparing TV Pro's engine picker against two reference open-source IPTV players
+(`github.com/Talha-Ashraf420/lumen`, `github.com/kvnpyy/streamly`): `lumen` uses exactly this technique
+(mpegts.js over MSE for raw-TS live, hls.js for `.m3u8`, native for simple containers) and confirms it as the
+standard, working approach — not a guess. The engine picker now tries `mpegts.js` first for a live source that is
+neither an HLS playlist nor a simple native container, falling back to the previous (Safari-native / hls.js)
+attempt unchanged if mpegts.js fails to load or isn't supported, so there is no regression risk for any source
+that already worked. `mpegts.js` (Apache-2.0, v1.7.3) is vendored same-origin at
+`/_next/static/vendor/mpegts.min.js` rather than loaded from a CDN: the site's own CSP
+(`script-src 'self' 'unsafe-inline'`) blocks any cross-origin `<script src>` outright — confirmed while testing
+this, not assumed — so a same-origin file is the only way a lazily-loaded script tag works here at all, and it
+also removes a third-party runtime dependency. `streamly`'s approach to MKV/HEVC (server-side ffmpeg
+transcoding to HLS on demand) was considered and **not** adopted: it needs a real server process with ffmpeg
+installed, which neither Cloudflare Workers nor the Deno edge gateway can run (no persistent process, no ffmpeg
+binary, strict CPU/time limits) — a legitimate idea, but a separate infrastructure project, not a patch to this
+static-site-plus-edge-gateway architecture.
+
+Tests: `tests/gateway.test.mjs` + `tests/demo.test.mjs` (70/70, unchanged) and `tests/e2e/playback.e2e.mjs`, now 15
+scenarios. The ts-only-account scenario now also asserts that the real, unmodified vendored `mpegts.js` is
+actually requested and loaded (not stubbed) for a raw `.ts` live source, and that an unparseable stream (the mock
+provider's `.ts` response is a real file but not genuine MPEG-TS data) still fails safely within the normal
+attempt budget through the new engine. Real playback of a genuine MPEG-TS stream could not be tested — there is
+no such fixture (and no `ffmpeg` to generate one) in this sandbox — so the engine's successful-decode path is
+unverified; everything up to that point (selection, loading, attaching, and failure handling) is verified for
+real, not assumed.
