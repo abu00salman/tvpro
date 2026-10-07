@@ -261,15 +261,12 @@ MpegtsEngine.prototype.setTextTrack=function(){};
 window.__tvproCreateMpegtsEngine=function(video,source,opts){
  return loadMpegts().then(function(mpegts){
   if(!mpegts.isSupported())throw new Error("mpegts.js: not supported in this browser");
-  /* enableStashBuffer was off (mpegts.js's own docs: "playback may stall on network jitter" when disabled --
-     exactly the intermittent stutter reported on raw-TS live channels) and liveBufferLatencyChasing was explicitly
-     turned on (it defaults to off in mpegts.js itself) to chase the live edge, which does so by adjusting playback
-     speed -- the reported occasional speed-up. Neither trade-off is worth it: drop both, back to mpegts.js's own
-     defaults (stash buffer on, no latency chasing), matching how the hls.js/native engines already behave (no
-     artificial speed changes, buffer absorbs jitter instead of being disabled). */
+  /* Reverted per real-world testing: dropping enableStashBuffer:false and liveBufferLatencyChasing (tried briefly
+     to address a reported stutter/speed-up) made playback noticeably worse, not better -- back to the settings
+     that were actually working. */
   var player=mpegts.createPlayer(
    {type:"mse",isLive:!!source.live,url:source.url,cors:!0},
-   {autoCleanupSourceBuffer:!0}
+   {enableStashBuffer:!1,liveBufferLatencyChasing:!!source.live,liveBufferLatencyMaxLatency:3,autoCleanupSourceBuffer:!0}
   );
   var engine=new MpegtsEngine(player,video,opts);
   player.on(mpegts.Events.ERROR,function(type,details,info){
