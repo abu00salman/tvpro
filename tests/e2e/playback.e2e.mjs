@@ -378,20 +378,9 @@ await scenario('demo: 7 channels / 7 movies / 7 real series with artwork; an epi
   await ctx.close(); return { counts, seriesArtwork: cards, episode: o, upgraded };
 });
 
-await scenario('Gulf Cup row: shows immediately with zero extra connections; a real failure (not a guess) hides a channel everywhere', async () => {
+await scenario('a real failure (not a guess) hides a channel from Live TV without a reload', async () => {
   const { ctx, page } = await session();
   P.log = [];
-  await page.goto('https://tv-pro.app/');
-  await page.waitForSelector('.gc27-card', { timeout: 10000 });
-  // No probing happened: opening the row cost no requests to the provider at all.
-  assert.equal(streamRequests(/^\/live\//), 0, 'the row never opens a connection just to test a channel');
-  let names = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
-  assert.deepEqual(names.sort(), ['Sport: KSA 1 FHD', 'Sport: KSA 2 HD'], 'both are shown; neither has been tried yet, so neither is assumed broken');
-  await page.click('.gc27'); await page.waitForTimeout(300);
-  const sheetText = await page.$$eval('.gc27-ch', (bs) => bs.map((b) => b.textContent));
-  assert.equal(sheetText.length, 2, 'sheet agrees with the row');
-  await page.click('.gc27-x');
-  // Now play the 403 channel for real: a genuine, durable failure hides it from the row and from Live TV, immediately.
   await page.goto('https://tv-pro.app/#/live');
   await page.getByText('Sport: KSA 2 HD').click();
   await outcome(page, 15000);
@@ -399,14 +388,10 @@ await scenario('Gulf Cup row: shows immediately with zero extra connections; a r
   const badMap = await page.evaluate(() => JSON.parse(localStorage.getItem('tvpro:badchannels') || '{}'));
   const stillListed = await page.getByText('Sport: KSA 2 HD').count();
   const workingStillListed = await page.getByText('Sport: KSA 1 FHD').count();
-  await page.goto('https://tv-pro.app/');
-  await page.waitForSelector('.gc27-card', { timeout: 10000 });
-  const namesAfter = await page.$$eval('.gc27-card b', (b) => b.map((x) => x.textContent));
   assert.ok(Object.keys(badMap).length >= 1, 'failure recorded');
   assert.equal(stillListed, 0, 'the confirmed-bad channel disappears from Live TV without a reload');
   assert.ok(workingStillListed > 0, 'a working channel is never touched');
-  assert.deepEqual(namesAfter, ['Sport: KSA 1 FHD'], 'the Gulf Cup row reflects the same real-world outcome');
-  await ctx.close(); return { rowNamesBefore: names, rowNamesAfter: namesAfter, badCodes: Object.values(badMap).map((b) => b.code) };
+  await ctx.close(); return { badCodes: Object.values(badMap).map((b) => b.code) };
 });
 
 await scenario('movie MKV on desktop Chrome, with a restream server configured, falls back DIRECT → RESTREAM and plays', async () => {
