@@ -11,7 +11,7 @@ const builds = { cloudflare: await load('cloudflare-worker.js'), deno: await loa
 // ---- mock upstream ----
 let routes = {}, calls = [];
 globalThis.fetch = async (url, init = {}) => {
-  calls.push({ url, range: init.headers && init.headers.Range });
+  calls.push({ url, range: init.headers && init.headers.Range, referer: init.headers && init.headers.Referer });
   const r = routes[url];
   if (!r) throw new TypeError('connect ECONNREFUSED (no route ' + url + ')');
   return r(init);
@@ -83,6 +83,16 @@ for (const [name, gw] of Object.entries(builds)) {
     const r = await withTimeout(call(gw, PANEL + '/movie/u/p/8.mkv', { Range: 'bytes=0-' }));
     assert.equal(r.status, 200);
     assert.ok((await r.body.getReader().read()).value.length > 0);
+  });
+
+  test(`${name}: proxied request carries the target's own origin as Referer (hotlink-protected posters/VOD)`, async () => {
+    // Many IPTV panels serve posters/logos/VOD files from storage that refuses a request with no Referer or one
+    // from a foreign site -- which is exactly what tv-pro.app would otherwise send. Spoofing the target's own
+    // origin is what the provider would see if its URL were opened directly, and is the standard fix.
+    routes[PANEL + '/images/u/p/201.jpg'] = () => new Response(new Uint8Array(10), { headers: { 'content-type': 'image/jpeg', 'content-length': '10' } });
+    const r = await call(gw, PANEL + '/images/u/p/201.jpg');
+    assert.equal(r.status, 200);
+    assert.equal(calls[0].referer, 'http://panel.example.com/');
   });
 
   test(`${name}: series episode path and HEAD (served from GET, no body)`, async () => {

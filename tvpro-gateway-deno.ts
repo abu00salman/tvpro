@@ -132,7 +132,11 @@ async function handleProxy(request, reqUrl, cors, platform) {
   const target = validateTarget(raw);
   if (!target) return errorResponse(cors, 'BLOCKED_TARGET', 403, 'private, local or invalid address');
 
-  const headers = { 'User-Agent': request.headers.get('user-agent') || FALLBACK_UA, 'Accept': '*/*', 'Accept-Encoding': 'identity' };
+  // Many IPTV panels serve posters/logos (and sometimes VOD files) from the same storage/CDN that only answers
+  // requests carrying a same-origin Referer (hotlink protection) -- a browser fetching the provider's URL directly
+  // never has one once this goes through our own HTTPS origin, so every image/asset request was silently refused.
+  // Sending the target's own origin as Referer is what the provider would see if its URL were opened directly.
+  const headers = { 'User-Agent': request.headers.get('user-agent') || FALLBACK_UA, 'Accept': '*/*', 'Accept-Encoding': 'identity', 'Referer': target.origin + '/' };
   const range = request.headers.get('range');
   if (range && !isPlaylistPath(target)) headers['Range'] = range; // seeking in movies; never for playlists (some panels return a truncated 206 list)
 
