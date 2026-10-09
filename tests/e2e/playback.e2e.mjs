@@ -43,7 +43,7 @@ async function provider(url, init = {}) {
     const data = {
       '': { user_info: info, server_info: {} },
       get_live_categories: [{ category_id: '1', category_name: 'News' }],
-      get_live_streams: [{ stream_id: 101, name: 'Live One', num: 1, category_id: '1' }, { stream_id: 102, name: 'Live Two', num: 2, category_id: '1' }, { stream_id: 501, name: 'Sport: KSA 1 FHD', num: 3, category_id: '1' }, { stream_id: 502, name: 'Sport: KSA 2 HD', num: 4, category_id: '1' }],
+      get_live_streams: [{ stream_id: 101, name: 'Live One', num: 1, category_id: '1', ...(P.mode.iconTest ? { stream_icon: '/logos/101.png' } : {}) }, { stream_id: 102, name: 'Live Two', num: 2, category_id: '1' }, { stream_id: 501, name: 'Sport: KSA 1 FHD', num: 3, category_id: '1' }, { stream_id: 502, name: 'Sport: KSA 2 HD', num: 4, category_id: '1' }],
       get_vod_categories: [{ category_id: '2', category_name: 'Films' }],
       get_vod_streams: [{ stream_id: 201, name: 'Movie MP4', container_extension: 'mp4', category_id: '2' }, { stream_id: 202, name: 'Movie MKV', container_extension: 'mkv', category_id: '2' }],
       get_series_categories: [{ category_id: '3', category_name: 'Shows' }],
@@ -73,6 +73,7 @@ async function provider(url, init = {}) {
     const f = m[1];
     return f.endsWith('.m3u8') ? file('hls/index.m3u8', 'application/vnd.apple.mpegurl') : file('hls/' + f, 'video/mp4', hdr('Range'));
   }
+  if (u.pathname === '/logos/101.png') return file('logo.png', 'image/png');
   if (u.pathname === '/movie/tvuser/s3cretpass/201.mp4' || u.pathname === '/series/tvuser/s3cretpass/401.mp4') return file('movie.mp4', 'video/mp4', hdr('Range'));
   if (u.pathname === '/movie/tvuser/s3cretpass/202.mkv') return file('movie.mkv', 'video/x-matroska', hdr('Range'));
   return new Response('not found', { status: 404 });
@@ -158,6 +159,29 @@ const lastLog = (page) => page.evaluate(() => (window.__tvproPlayLog ? window.__
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
 // ---------------- scenarios ----------------
+await scenario('Live TV list/grid view toggle switches layout, persists across reload, and both play the same channel', async () => {
+  const { ctx, page } = await session();
+  P.log = [];
+  await page.goto('https://tv-pro.app/#/live');
+  const toggle = page.getByRole('button', { name: /Grid view|عرض شبكي/ });
+  await toggle.waitFor({ state: 'visible', timeout: 10000 });
+  const rowBefore = await page.locator('[role="option"]').count();
+  assert.ok(rowBefore > 0, 'list mode renders the usual row items');
+  await toggle.click();
+  await page.waitForTimeout(300);
+  const rowAfter = await page.locator('[role="option"]').count();
+  assert.equal(rowAfter, 0, 'grid mode no longer renders list rows');
+  const gridCards = await page.locator('button:has-text("Live One")').count();
+  assert.ok(gridCards > 0, 'grid mode renders the same channels as cards');
+  const stored = await page.evaluate(() => localStorage.getItem('tvpro:liveView'));
+  assert.equal(stored, 'grid', 'the choice is persisted');
+  await page.reload(); await page.waitForTimeout(800);
+  const rowsAfterReload = await page.locator('[role="option"]').count();
+  assert.equal(rowsAfterReload, 0, 'grid view is remembered across a reload');
+  await page.getByText('Live One').first().click();
+  assert.equal(await outcome(page), 'playing', 'a channel opened from a grid card still plays');
+  await ctx.close(); return { rowBefore, rowAfter, gridCards, stored };
+});
 await scenario('live HLS (panel domain → 302 to bare IP) plays through the Deno gateway with ONE provider session', async () => {
   const { ctx, page, hits } = await session();
   P.log = []; hits.length = 0;
@@ -167,6 +191,30 @@ await scenario('live HLS (panel domain → 302 to bare IP) plays through the Den
   assert.equal(o, 'playing'); assert.equal(sessions, 1, 'one /live/ request');
   assert.ok(!hits.some((h) => GW_HOSTS[h] === 'cloudflare'), 'Cloudflare never tried');
   await ctx.close(); return { outcome: o, liveSessions: sessions, gatewayHits: [...new Set(hits)] };
+});
+await scenario('a channel logo given as a panel-root-relative path (not absolute) still resolves and loads', async () => {
+  // Real Xtream panels commonly return stream_icon as "/images/x.png" or "//cdn/x.png" rather than a full
+  // absolute URL. The sanitizer behind channel/movie/series artwork used to accept only an already-absolute
+  // http(s) URL, silently treating anything else as "no logo" -- channels with real server-relative icons never
+  // showed one at all, even though the provider genuinely serves one.
+  P.mode.iconTest = true;
+  const { ctx, page } = await session();
+  const row = page.getByText('Live One').first().locator('xpath=ancestor::*[self::a or self::button][1]');
+  const logo = row.locator('img');
+  await logo.first().waitFor({ state: 'attached', timeout: 10000 });
+  const src = await logo.first().getAttribute('src');
+  // The panel is http:// on an https:// page, so the Image component correctly routes it through the gateway
+  // (same as any mixed-content asset) -- what matters here is that the relative path was resolved at all
+  // (the actual provider URL appears, absolute, inside the proxy's own `url` param) rather than dropped.
+  const resolved = src && decodeURIComponent(new URL(src).searchParams.get('url') || src);
+  assert.equal(resolved, 'http://panel.example.com/logos/101.png', 'resolved to an absolute URL: ' + src);
+  const naturalWidth = await logo.first().evaluate((el) => new Promise((res) => {
+    if (el.complete) return res(el.naturalWidth);
+    el.onload = () => res(el.naturalWidth);
+    el.onerror = () => res(-1);
+  }));
+  assert.ok(naturalWidth > 0, 'the image actually loaded, not just resolved a URL');
+  await ctx.close(); P.mode.iconTest = false; return { src, naturalWidth };
 });
 await scenario('channel switch releases the previous stream (no requests to channel 1 after switching)', async () => {
   const { ctx, page } = await session();
