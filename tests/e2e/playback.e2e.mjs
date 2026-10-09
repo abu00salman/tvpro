@@ -125,6 +125,12 @@ async function session(opts = {}) {
     if (gw) {
       if (u.pathname === '/proxy' && !/player_api/.test(u.searchParams.get('url') || '')) hits.push(u.host);
       if (opts.gatewayDown) return route.abort('connectionreset');
+      // Simulates a platform-level edge block (e.g. Cloudflare's own "error code: 1003") that refuses the
+      // request before any of our gateway code runs -- a raw 403 with none of our own response shape, as
+      // opposed to our gateway's own classified UPSTREAM_BLOCKED/etc responses elsewhere in this file.
+      if (opts.edgeBlockHost === u.host && u.pathname === '/proxy' && !/player_api/.test(u.searchParams.get('url') || '')) {
+        return route.fulfill({ status: 403, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: 'error code: 1003' });
+      }
       const res = await gateways[gw].fetch(new Request(req.url(), { method: req.method(), headers: req.headers() }), {});
       const headers = {}; res.headers.forEach((v, k) => { headers[k] = v; });
       return route.fulfill({ status: res.status, headers, body: Buffer.from(await res.arrayBuffer()) });
@@ -226,6 +232,24 @@ await scenario('channel switch releases the previous stream (no requests to chan
   const two = streamRequests(/^\/live\/tvuser\/s3cretpass\/102/);
   assert.equal(after, 0, 'no channel-1 traffic after switch'); assert.equal(two, 1);
   await ctx.close(); return { channel1RequestsAfterSwitch: after, channel2Sessions: two };
+});
+await scenario('a platform-level edge block on the first gateway (not a real provider block) is escaped by pressing Retry', async () => {
+  // Regression test for a real, confirmed-in-production bug: a diag.html report showed Cloudflare's own edge
+  // network refusing a request with its own "error code: 1003" (not our gateway code's doing -- that never even
+  // ran), while the exact same URL played fine through the Deno gateway seconds later. The site kept retrying
+  // the same broken gateway forever because Retry always restarted at gatewayIndex 0. It must now actually reach
+  // a working gateway within a couple of Retry presses.
+  const { ctx, page, hits } = await session({ edgeBlockHost: 'great-fox-5853.abu00salmanr.deno.net' });
+  P.log = []; hits.length = 0;
+  await page.goto('https://tv-pro.app/#/live'); await page.getByText('Live One').first().click();
+  assert.equal(await outcome(page, 15000), 'error', 'first gateway is edge-blocked, exactly like a genuine provider 403');
+  // A gradient error overlay sits visually on top of the Retry button; a coordinate-based click (even with
+  // Playwright's `force`) lands on the overlay instead of the button, so dispatch the click on the element directly.
+  await page.getByRole('button', { name: 'Retry' }).evaluate((el) => el.click());
+  const o = await outcome(page, 15000);
+  assert.equal(o, 'playing', 'retry advanced to a gateway that actually works instead of hitting the same broken one again');
+  assert.ok(hits.includes('tvpro-gateway.rmz.deno.net'), 'the second gateway was actually tried: ' + JSON.stringify(hits));
+  await ctx.close(); return { outcome: o, gatewaysTried: [...new Set(hits)] };
 });
 await scenario('panel answers "Blocked" → one attempt, UPSTREAM_403, no retries across gateways', async () => {
   const { ctx, page, hits } = await session();
