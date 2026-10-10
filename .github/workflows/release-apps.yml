@@ -215,7 +215,16 @@ jobs:
             -in /tmp/tvpro-author.crt -inkey /tmp/tvpro-author.key \
             -out "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" \
             -name TVPro -passout "pass:$PASS"
-          DISTRIBUTOR_P12="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
+          DISTRIBUTOR_DIR="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor"
+          # Newer Tizen Studio releases ship the distributor cert as
+          # "tizen-distributor-signer-new.p12" instead of the old
+          # "tizen-distributor-signer.p12" name; prefer the new one if present.
+          if [ -f "$DISTRIBUTOR_DIR/tizen-distributor-signer-new.p12" ]; then
+            DISTRIBUTOR_P12="$DISTRIBUTOR_DIR/tizen-distributor-signer-new.p12"
+          else
+            DISTRIBUTOR_P12="$DISTRIBUTOR_DIR/tizen-distributor-signer.p12"
+          fi
+          echo "Using distributor cert: $DISTRIBUTOR_P12"
           tizen security-profiles add -n tvpro \
             -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
             -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
