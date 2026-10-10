@@ -192,13 +192,15 @@ jobs:
       - name: Install Tizen Studio CLI (web CLI + certificate tools)
         run: |
           set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring dbus-x11
           TIZEN_STUDIO_VERSION=5.5
           curl -fsSL -o web-cli.bin "http://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VERSION}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VERSION}_ubuntu-64.bin"
           chmod +x web-cli.bin
           echo y | ./web-cli.bin --accept-license "$HOME/tizen-studio"
           echo "$HOME/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
 
-      - name: Create author + distributor security profile
+      - name: Create profile, build and package the signed .wgt
         env:
           REAL_AUTHOR_P12_BASE64: ${{ secrets.TIZEN_AUTHOR_P12_BASE64 }}
           REAL_AUTHOR_P12_PASSWORD: ${{ secrets.TIZEN_AUTHOR_P12_PASSWORD }}
@@ -233,21 +235,29 @@ jobs:
               -name TVPro -passout "pass:$PASS"
           fi
 
-          tizen security-profiles add -n tvpro \
-            -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
-            -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
-
-      - name: Build and package the signed .wgt
-        run: |
-          set -euxo pipefail
-          export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
-          tizen build-web -- "$GITHUB_WORKSPACE/tizen"
-          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult" || {
-            echo "---- tizen package failed, dumping cli.log ----"
-            find "$HOME" -name 'cli.log' -exec cat {} \;
-            exit 1
-          }
           mkdir -p out
+
+          # Tizen Studio stores certificate passwords via gnome-keyring. A
+          # headless CI runner has no keyring session, so "tizen package"
+          # fails with "CertificationException: Invaild password" even when
+          # the password is correct. Run everything inside one D-Bus session
+          # with an unlocked keyring so the profile's stored passwords can
+          # actually be read back.
+          dbus-run-session -- bash -euxo pipefail -c '
+            eval "$(printf "\n" | gnome-keyring-daemon --unlock --daemonize --components=secrets,pkcs11,ssh)"
+            export GNOME_KEYRING_CONTROL GNOME_KEYRING_PID SSH_AUTH_SOCK
+
+            tizen security-profiles add -n tvpro \
+              -a "'"$HOME"'/tizen-studio-data/keystore/author/tvpro-author.p12" -p "'"$PASS"'" \
+              -d "'"$DISTRIBUTOR_P12"'" -dp "tizenpkcs12passfordsigner"
+
+            tizen build-web -- "'"$GITHUB_WORKSPACE"'/tizen"
+            tizen package -t wgt -s tvpro -- "'"$GITHUB_WORKSPACE"'/tizen/.buildResult" || {
+              echo "---- tizen package failed, dumping cli.log ----"
+              find "'"$HOME"'" -name "cli.log" -exec cat {} \;
+              exit 1
+            }
+          '
           find "$GITHUB_WORKSPACE/tizen/.buildResult" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
 
       - name: Upload Tizen artifact
