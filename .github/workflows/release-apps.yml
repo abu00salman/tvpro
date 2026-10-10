@@ -195,16 +195,16 @@ jobs:
           TIZEN_STUDIO_VERSION=5.5
           curl -fsSL -o web-cli.bin "http://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VERSION}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VERSION}_ubuntu-64.bin"
           chmod +x web-cli.bin
-          echo y | ./web-cli.bin --accept-license /opt/tizen-studio
-          echo "/opt/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
+          echo y | ./web-cli.bin --accept-license "$HOME/tizen-studio"
+          echo "$HOME/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
 
       - name: Create a self-signed author + distributor security profile
         run: |
           set -euxo pipefail
-          export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
+          export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
           PASS="tvpro-tizen"
           tizen certificate -a "TVPro" -p "$PASS" -c US -s CA -ct "San Francisco" -o "TV Pro" -n "TV Pro" -e "tvpro@tv-pro.app" -f tvpro-author
-          DISTRIBUTOR_P12="/opt/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
+          DISTRIBUTOR_P12="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
           tizen security-profiles add -n tvpro \
             -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
             -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
@@ -212,7 +212,7 @@ jobs:
       - name: Build and package the signed .wgt
         run: |
           set -euxo pipefail
-          export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
+          export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
           tizen build-web -- "$GITHUB_WORKSPACE/tizen"
           tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult"
           mkdir -p out
