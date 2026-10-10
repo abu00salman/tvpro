@@ -1,4 +1,4 @@
-name: Build and release apps (Windows, macOS, Android)
+name: Build and release apps (Windows, macOS, Android, iOS)
 
 on:
   workflow_dispatch:
@@ -30,11 +30,17 @@ jobs:
       - name: Build Windows installer
         run: npm run dist:win
 
+      - name: Rename installer
+        shell: bash
+        run: |
+          mkdir -p dist/out
+          cp dist/*.exe dist/out/TV-Pro-windows.exe
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: TV-Pro-windows
-          path: desktop/dist/*.exe
+          path: desktop/dist/out/TV-Pro-windows.exe
           if-no-files-found: error
 
   build-macos:
@@ -55,13 +61,19 @@ jobs:
       - name: Build universal DMG + zip
         run: npm run dist:mac
 
+      - name: Rename artifacts
+        run: |
+          mkdir -p dist/out
+          cp dist/*.dmg dist/out/TV-Pro-macos.dmg
+          cp dist/*.zip dist/out/TV-Pro-macos.zip
+
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: TV-Pro-macOS
           path: |
-            desktop/dist/*.dmg
-            desktop/dist/*.zip
+            desktop/dist/out/TV-Pro-macos.dmg
+            desktop/dist/out/TV-Pro-macos.zip
           if-no-files-found: error
 
   build-android:
@@ -116,8 +128,60 @@ jobs:
           path: mobile/android/app/build/outputs/apk/release/TV-Pro-android.apk
           if-no-files-found: error
 
+  build-ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Capacitor iOS project (installs CocoaPods pods)
+        run: npx cap sync ios
+
+      - name: Build unsigned .app (no code signing / no Apple account)
+        working-directory: mobile/ios/App
+        run: |
+          set -euxo pipefail
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Package unsigned .ipa
+        working-directory: mobile/ios/App
+        run: |
+          set -euxo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/App.app"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/App.app
+          zip -r -y TV-Pro-ios-unsigned.ipa Payload
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TV-Pro-ios
+          path: mobile/ios/App/TV-Pro-ios-unsigned.ipa
+          if-no-files-found: error
+
   create-release:
-    needs: [build-windows, build-macos, build-android]
+    needs: [build-windows, build-macos, build-android, build-ios]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -138,17 +202,30 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-v${{ steps.ver.outputs.version }}
-          name: TV Pro v${{ steps.ver.outputs.version }}
+          name: TV Pro — iPhone · Android · Mac · Windows
           body: |
-            تطبيقات TV Pro لكل المنصات:
+            📺 TV Pro — حمّل الآن واستمتع
 
-            - **Android**: ملف APK — فعّل "تثبيت من مصادر غير معروفة" ثم ثبّت الملف.
-            - **Windows**: برنامج تثبيت (.exe).
-            - **macOS**: ملف DMG (يدعم Intel وApple Silicon - universal).
-            - **iPhone/iPad**: لا يوجد حساب مطوّر آبل مفعّل حالياً، فلا يمكن توفير IPA قابل للتثبيت المباشر. افتح tv-pro.app في Safari واستخدم "إضافة إلى الشاشة الرئيسية" لتثبيت التطبيق كـ PWA.
+            📺 TV Pro — Download now and enjoy
+
+            التطبيق متوفر للجميع: آيفون، أندرويد، ماك وويندوز.
+            Available for everyone: iPhone, Android, Mac and Windows.
+
+            | المنصة / Platform | الملف / File |
+            |---|---|
+            | 📱 Android | TV-Pro-android.apk |
+            | 🍎 iPhone / iPad | TV-Pro-ios-unsigned.ipa * |
+            | 💻 Mac (Intel + Apple Silicon, universal) | TV-Pro-macos.dmg |
+            | 🪟 Windows | TV-Pro-windows.exe |
+
+            👇 حمّل ملف منصتك من قسم Assets أدناه / Pick your platform's file from Assets below.
+
+            \* ملاحظة: تطبيق الآيفون غير موقّع (unsigned) لعدم توفر حساب Apple Developer. لتثبيته تحتاج توقيعه بحسابك الخاص (مثلاً عبر AltStore / Sideloadly / Xcode) أو عبر أي شخص يملك شهادة توقيع. بديل فوري بدون توقيع: افتح tv-pro.app في Safari واختر "إضافة إلى الشاشة الرئيسية" لتثبيته كتطبيق ويب.
+            \* Note: the iPhone app is unsigned because no Apple Developer account is configured. To install it you need to sign it yourself (e.g. via AltStore / Sideloadly / Xcode) or have someone with a signing certificate sign it for you. Immediate no-signing alternative: open tv-pro.app in Safari and choose "Add to Home Screen" to install it as a web app.
           files: |
             artifacts/TV-Pro-windows/*.exe
             artifacts/TV-Pro-macOS/*.dmg
             artifacts/TV-Pro-macOS/*.zip
             artifacts/TV-Pro-android/*.apk
+            artifacts/TV-Pro-ios/*.ipa
           fail_on_unmatched_files: true
