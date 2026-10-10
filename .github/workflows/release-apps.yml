@@ -11,6 +11,9 @@ on:
     tags:
       - 'app-v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -180,8 +183,48 @@ jobs:
           path: mobile/ios/App/TV-Pro-ios-unsigned.ipa
           if-no-files-found: error
 
+  build-tizen:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tizen Studio CLI (package manager, web CLI, certificate tools)
+        run: |
+          set -euxo pipefail
+          curl -fsSL -o pm.bin "https://download.tizen.org/sdk/Installer/tizen-studio_4.9/web-cli_Tizen_Studio_4.9_ubuntu-64.bin"
+          chmod +x pm.bin
+          ./pm.bin --accept-license /opt/tizen-studio
+          echo "/opt/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
+
+      - name: Create a self-signed author + distributor security profile
+        run: |
+          set -euxo pipefail
+          export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
+          PASS="tvpro-tizen"
+          tizen certificate -a "TVPro" -p "$PASS" -c US -s CA -ct "San Francisco" -o "TV Pro" -n "TV Pro" -e "tvpro@tv-pro.app" -f tvpro-author
+          DISTRIBUTOR_P12="/opt/tizen-studio-data/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
+          tizen security-profiles add -n tvpro \
+            -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
+            -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
+
+      - name: Package and sign the .wgt
+        run: |
+          set -euxo pipefail
+          export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
+          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen"
+          mkdir -p out
+          find "$GITHUB_WORKSPACE/tizen" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
+
+      - name: Upload Tizen artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TV-Pro-tizen
+          path: out/TV-Pro-samsung-tv.wgt
+          if-no-files-found: ignore
+
   create-release:
-    needs: [build-windows, build-macos, build-android, build-ios]
+    needs: [build-windows, build-macos, build-android, build-ios, build-tizen]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -198,18 +241,34 @@ jobs:
             echo "version=${GITHUB_REF_NAME#app-v}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build list of assets that actually exist
+        id: assets
+        run: |
+          set -euo pipefail
+          files=""
+          for f in artifacts/TV-Pro-windows/*.exe artifacts/TV-Pro-macOS/*.dmg artifacts/TV-Pro-macOS/*.zip artifacts/TV-Pro-android/*.apk artifacts/TV-Pro-ios/*.ipa artifacts/TV-Pro-tizen/*.wgt; do
+            if [ -f "$f" ]; then
+              files="$files"$'\n'"$f"
+            fi
+          done
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-v${{ steps.ver.outputs.version }}
-          name: TV Pro — iPhone · Android · Mac · Windows
+          name: TV Pro — iPhone · Android · Mac · Windows · Samsung TV
           body: |
             📺 TV Pro — حمّل الآن واستمتع
 
             📺 TV Pro — Download now and enjoy
 
-            التطبيق متوفر للجميع: آيفون، أندرويد، ماك وويندوز.
-            Available for everyone: iPhone, Android, Mac and Windows.
+            التطبيق متوفر للجميع: آيفون، أندرويد، ماك، ويندوز، وتلفزيونات سامسونج.
+            Available for everyone: iPhone, Android, Mac, Windows and Samsung TVs.
 
             | المنصة / Platform | الملف / File |
             |---|---|
@@ -217,15 +276,14 @@ jobs:
             | 🍎 iPhone / iPad | TV-Pro-ios-unsigned.ipa * |
             | 💻 Mac (Intel + Apple Silicon, universal) | TV-Pro-macos.dmg |
             | 🪟 Windows | TV-Pro-windows.exe |
+            | 📺 Samsung Smart TV (Tizen) | TV-Pro-samsung-tv.wgt ** |
 
             👇 حمّل ملف منصتك من قسم Assets أدناه / Pick your platform's file from Assets below.
 
             \* ملاحظة: تطبيق الآيفون غير موقّع (unsigned) لعدم توفر حساب Apple Developer. لتثبيته تحتاج توقيعه بحسابك الخاص (مثلاً عبر AltStore / Sideloadly / Xcode) أو عبر أي شخص يملك شهادة توقيع. بديل فوري بدون توقيع: افتح tv-pro.app في Safari واختر "إضافة إلى الشاشة الرئيسية" لتثبيته كتطبيق ويب.
             \* Note: the iPhone app is unsigned because no Apple Developer account is configured. To install it you need to sign it yourself (e.g. via AltStore / Sideloadly / Xcode) or have someone with a signing certificate sign it for you. Immediate no-signing alternative: open tv-pro.app in Safari and choose "Add to Home Screen" to install it as a web app.
-          files: |
-            artifacts/TV-Pro-windows/*.exe
-            artifacts/TV-Pro-macOS/*.dmg
-            artifacts/TV-Pro-macOS/*.zip
-            artifacts/TV-Pro-android/*.apk
-            artifacts/TV-Pro-ios/*.ipa
+
+            \** تثبيت تطبيق Samsung TV: فعّل وضع المطور (Developer Mode) على التلفزيون من Apps > ابحث عن رقم طراز جهازك، ثم ثبّت الملف عبر Tizen Studio/SDB من جهاز كمبيوتر على نفس الشبكة. التوقيع هنا محلي (للتطوير فقط)، وليس من متجر Samsung.
+            \** Installing the Samsung TV app: enable Developer Mode on the TV (Apps > search your model number), then install the file via Tizen Studio/SDB from a computer on the same network. The signature here is a local development signature, not a Samsung Store one.
+          files: ${{ steps.assets.outputs.files }}
           fail_on_unmatched_files: true
