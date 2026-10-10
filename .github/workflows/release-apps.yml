@@ -203,7 +203,18 @@ jobs:
           set -euxo pipefail
           export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
           PASS="tvpro-tizen"
-          tizen certificate -a "TVPro" -p "$PASS" -c US -s CA -ct "San Francisco" -o "TV Pro" -n "TV Pro" -e "tvpro@tv-pro.app" -f tvpro-author
+          mkdir -p "$HOME/tizen-studio-data/keystore/author"
+          # Generate the author cert with OpenSSL directly (legacy PKCS12 encryption),
+          # since Tizen's own "tizen certificate" CLI produces a PKCS12 file that this
+          # Tizen Studio version's packaging step then rejects with "Invalid password"
+          # on Ubuntu 24.04's newer OpenSSL (default PKCS12 encryption is too new for it).
+          openssl genrsa -out /tmp/tvpro-author.key 2048
+          openssl req -new -x509 -key /tmp/tvpro-author.key -out /tmp/tvpro-author.crt -days 10000 \
+            -subj "/C=US/ST=CA/L=San Francisco/O=TV Pro/CN=TV Pro"
+          openssl pkcs12 -export -legacy \
+            -in /tmp/tvpro-author.crt -inkey /tmp/tvpro-author.key \
+            -out "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" \
+            -name TVPro -passout "pass:$PASS"
           DISTRIBUTOR_P12="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
           tizen security-profiles add -n tvpro \
             -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
