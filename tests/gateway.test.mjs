@@ -213,3 +213,22 @@ for (const [name, gw] of Object.entries(builds)) {
     assert.equal(r.headers.get('x-tvpro-error'), 'UPSTREAM_BLOCKED');
   });
 }
+
+// Some panels answer player_api.php / xmltv.php with Content-Type text/plain (or none at all) instead of
+// application/json; before the looksJson check this was misread as a refused playlist and rejected outright.
+for (const [name, gw] of Object.entries(builds)) {
+  test(`${name}: JSON API response mislabeled text/plain still passes through`, async () => {
+    routes = { [PANEL + '/player_api.php?action=get_live_streams']: text('{"user_info":{"status":"Active"}}', 'text/plain') }; calls = [];
+    const r = await call(gw, PANEL + '/player_api.php?action=get_live_streams');
+    assert.equal(r.status, 200);
+    assert.ok((r.headers.get('content-type') || '').includes('json'));
+    assert.deepEqual(JSON.parse(await r.text()), { user_info: { status: 'Active' } });
+  });
+  test(`${name}: JSON API response with no Content-Type still passes through`, async () => {
+    routes = { [PANEL + '/xmltv.php']: text('[]', '') }; calls = [];
+    const r = await call(gw, PANEL + '/xmltv.php');
+    assert.equal(r.status, 200);
+    assert.ok((r.headers.get('content-type') || '').includes('json'));
+    assert.equal(await r.text(), '[]');
+  });
+}
