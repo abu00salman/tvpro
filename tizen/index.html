@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TV Pro</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0f14; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <script>
+    // Samsung Tizen TV remote: Return key exits the app instead of doing nothing.
+    document.addEventListener('tizenhwkey', function (e) {
+      if (e.keyName === 'back') {
+        try {
+          if (typeof tizen !== 'undefined' && tizen.application) {
+            tizen.application.getCurrentApplication().exit();
+          }
+        } catch (err) {
+          // ignore if not running on a real Tizen device
+        }
+      }
+    });
+
+    // This app is a thin shell: it always sends the TV straight to the live site.
+    window.location.replace('https://tv-pro.app');
+  </script>
+</body>
+</html>
