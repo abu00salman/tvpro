@@ -214,7 +214,11 @@ jobs:
           set -euxo pipefail
           export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
           tizen build-web -- "$GITHUB_WORKSPACE/tizen"
-          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult"
+          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult" || {
+            echo "---- tizen package failed, dumping cli.log ----"
+            find "$HOME" -name 'cli.log' -exec cat {} \;
+            exit 1
+          }
           mkdir -p out
           find "$GITHUB_WORKSPACE/tizen/.buildResult" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
 
