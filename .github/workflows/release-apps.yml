@@ -108,11 +108,11 @@ jobs:
             -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'tvpro-release' }}" \
             -keypass "${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'tvpro-release' }}" \
             -dname "CN=TV Pro, OU=TV Pro, O=TV Pro, L=, ST=, C="
+          echo "RELEASE_STORE_FILE=$(pwd)/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build signed release APK
         working-directory: mobile/android
         env:
-          RELEASE_STORE_FILE: ../release.keystore
           RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'tvpro-release' }}
           RELEASE_KEY_ALIAS: tvpro
           RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'tvpro-release' }}
