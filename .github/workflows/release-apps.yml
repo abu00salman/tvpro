@@ -189,12 +189,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Tizen Studio CLI (package manager, web CLI, certificate tools)
+      - name: Install Tizen Studio CLI (web CLI + certificate tools)
         run: |
           set -euxo pipefail
-          curl -fsSL -o pm.bin "https://download.tizen.org/sdk/Installer/tizen-studio_4.9/web-cli_Tizen_Studio_4.9_ubuntu-64.bin"
-          chmod +x pm.bin
-          ./pm.bin --accept-license /opt/tizen-studio
+          TIZEN_STUDIO_VERSION=5.5
+          curl -fsSL -o web-cli.bin "http://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VERSION}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VERSION}_ubuntu-64.bin"
+          chmod +x web-cli.bin
+          echo y | ./web-cli.bin --accept-license /opt/tizen-studio
           echo "/opt/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
 
       - name: Create a self-signed author + distributor security profile
@@ -203,18 +204,19 @@ jobs:
           export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
           PASS="tvpro-tizen"
           tizen certificate -a "TVPro" -p "$PASS" -c US -s CA -ct "San Francisco" -o "TV Pro" -n "TV Pro" -e "tvpro@tv-pro.app" -f tvpro-author
-          DISTRIBUTOR_P12="/opt/tizen-studio-data/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
+          DISTRIBUTOR_P12="/opt/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
           tizen security-profiles add -n tvpro \
             -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
             -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
 
-      - name: Package and sign the .wgt
+      - name: Build and package the signed .wgt
         run: |
           set -euxo pipefail
           export PATH="/opt/tizen-studio/tools/ide/bin:$PATH"
-          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen"
+          tizen build-web -- "$GITHUB_WORKSPACE/tizen"
+          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult"
           mkdir -p out
-          find "$GITHUB_WORKSPACE/tizen" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
+          find "$GITHUB_WORKSPACE/tizen/.buildResult" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
 
       - name: Upload Tizen artifact
         uses: actions/upload-artifact@v4
