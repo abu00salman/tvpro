@@ -192,29 +192,22 @@ jobs:
       - name: Install Tizen Studio CLI (web CLI + certificate tools)
         run: |
           set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnome-keyring dbus-x11
           TIZEN_STUDIO_VERSION=5.5
           curl -fsSL -o web-cli.bin "http://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VERSION}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VERSION}_ubuntu-64.bin"
           chmod +x web-cli.bin
           echo y | ./web-cli.bin --accept-license "$HOME/tizen-studio"
           echo "$HOME/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
 
-      - name: Create a self-signed author + distributor security profile
+      - name: Create profile, build and package the signed .wgt
+        env:
+          REAL_AUTHOR_P12_BASE64: ${{ secrets.TIZEN_AUTHOR_P12_BASE64 }}
+          REAL_AUTHOR_P12_PASSWORD: ${{ secrets.TIZEN_AUTHOR_P12_PASSWORD }}
         run: |
           set -euxo pipefail
           export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
-          PASS="tvpro-tizen"
           mkdir -p "$HOME/tizen-studio-data/keystore/author"
-          # Generate the author cert with OpenSSL directly (legacy PKCS12 encryption),
-          # since Tizen's own "tizen certificate" CLI produces a PKCS12 file that this
-          # Tizen Studio version's packaging step then rejects with "Invalid password"
-          # on Ubuntu 24.04's newer OpenSSL (default PKCS12 encryption is too new for it).
-          openssl genrsa -out /tmp/tvpro-author.key 2048
-          openssl req -new -x509 -key /tmp/tvpro-author.key -out /tmp/tvpro-author.crt -days 10000 \
-            -subj "/C=US/ST=CA/L=San Francisco/O=TV Pro/CN=TV Pro"
-          openssl pkcs12 -export -legacy \
-            -in /tmp/tvpro-author.crt -inkey /tmp/tvpro-author.key \
-            -out "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" \
-            -name TVPro -passout "pass:$PASS"
           DISTRIBUTOR_DIR="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor"
           # Newer Tizen Studio releases ship the distributor cert as
           # "tizen-distributor-signer-new.p12" instead of the old
@@ -225,21 +218,46 @@ jobs:
             DISTRIBUTOR_P12="$DISTRIBUTOR_DIR/tizen-distributor-signer.p12"
           fi
           echo "Using distributor cert: $DISTRIBUTOR_P12"
-          tizen security-profiles add -n tvpro \
-            -a "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" -p "$PASS" \
-            -d "$DISTRIBUTOR_P12" -dp "tizenpkcs12passfordsigner"
 
-      - name: Build and package the signed .wgt
-        run: |
-          set -euxo pipefail
-          export PATH="$HOME/tizen-studio/tools/ide/bin:$PATH"
-          tizen build-web -- "$GITHUB_WORKSPACE/tizen"
-          tizen package -t wgt -s tvpro -- "$GITHUB_WORKSPACE/tizen/.buildResult" || {
-            echo "---- tizen package failed, dumping cli.log ----"
-            find "$HOME" -name 'cli.log' -exec cat {} \;
-            exit 1
-          }
+          if [ -n "$REAL_AUTHOR_P12_BASE64" ]; then
+            echo "Using real author certificate from repository secrets"
+            echo "$REAL_AUTHOR_P12_BASE64" | base64 -d > "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12"
+            PASS="$REAL_AUTHOR_P12_PASSWORD"
+          else
+            echo "No TIZEN_AUTHOR_P12_BASE64 secret set, falling back to a self-signed author cert"
+            PASS="tvpro-tizen"
+            openssl genrsa -out /tmp/tvpro-author.key 2048
+            openssl req -new -x509 -key /tmp/tvpro-author.key -out /tmp/tvpro-author.crt -days 10000 \
+              -subj "/C=US/ST=CA/L=San Francisco/O=TV Pro/CN=TV Pro"
+            openssl pkcs12 -export -legacy \
+              -in /tmp/tvpro-author.crt -inkey /tmp/tvpro-author.key \
+              -out "$HOME/tizen-studio-data/keystore/author/tvpro-author.p12" \
+              -name TVPro -passout "pass:$PASS"
+          fi
+
           mkdir -p out
+
+          # Tizen Studio stores certificate passwords via gnome-keyring. A
+          # headless CI runner has no keyring session, so "tizen package"
+          # fails with "CertificationException: Invaild password" even when
+          # the password is correct. Run everything inside one D-Bus session
+          # with an unlocked keyring so the profile's stored passwords can
+          # actually be read back.
+          dbus-run-session -- bash -euxo pipefail -c '
+            eval "$(printf "\n" | gnome-keyring-daemon --unlock --daemonize --components=secrets,pkcs11,ssh)"
+            export GNOME_KEYRING_CONTROL GNOME_KEYRING_PID SSH_AUTH_SOCK
+
+            tizen security-profiles add -n tvpro \
+              -a "'"$HOME"'/tizen-studio-data/keystore/author/tvpro-author.p12" -p "'"$PASS"'" \
+              -d "'"$DISTRIBUTOR_P12"'" -dp "tizenpkcs12passfordsigner"
+
+            tizen build-web -- "'"$GITHUB_WORKSPACE"'/tizen"
+            tizen package -t wgt -s tvpro -- "'"$GITHUB_WORKSPACE"'/tizen/.buildResult" || {
+              echo "---- tizen package failed, dumping cli.log ----"
+              find "'"$HOME"'" -name "cli.log" -exec cat {} \;
+              exit 1
+            }
+          '
           find "$GITHUB_WORKSPACE/tizen/.buildResult" -maxdepth 1 -name '*.wgt' -exec cp {} out/TV-Pro-samsung-tv.wgt \;
 
       - name: Upload Tizen artifact
