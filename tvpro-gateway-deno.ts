@@ -148,7 +148,7 @@ async function handleProxy(request, reqUrl, cors, platform) {
     if (e instanceof GatewayError) return errorResponse(cors, e.code, e.status, e.detail);
     throw e;
   }
-  const ct = (upstream.headers.get('content-type') || '').toLowerCase();
+  let ct = (upstream.headers.get('content-type') || '').toLowerCase();
   const diag = { 'X-TVPro-Upstream-Status': String(upstream.status), 'X-TVPro-Final-Host': finalURL.host };
 
   if (!upstream.ok) {
@@ -171,14 +171,19 @@ async function handleProxy(request, reqUrl, cors, platform) {
     if (sniffed.empty) return errorResponse(cors, 'EMPTY_RESPONSE', 502, '', diag);
     // Media types (video/*, audio/*, octet-stream) stream through unless the body is plainly a refusal message.
     const media = /^(video|audio)\//.test(ct) || ct.includes('mp2t') || ct.includes('octet-stream');
+    // Some IPTV panels answer their own JSON API (player_api.php, xmltv.php stats, …) with Content-Type text/plain
+    // or no header at all; without this check the branch below mistook the JSON body for a refused-playlist message.
+    const headStart = new TextDecoder().decode(sniffed.head.slice(0, 32)).replace(/^\uFEFF/, '').trimStart();
+    const looksJson = !media && (headStart.startsWith('{') || headStart.startsWith('['));
     const refusal = media && sniffed.head.length < 512 && /^[\x09\x0a\x0d\x20-\x7e]*$/.test(new TextDecoder().decode(sniffed.head)) && /block|bann?ed|expired|disabled|denied/i.test(new TextDecoder().decode(sniffed.head));
-    if (refusal || (!media && (namedPlaylist || ct.startsWith('text/')))) {
+    if (refusal || (!media && !looksJson && (namedPlaylist || ct.startsWith('text/')))) {
       sniffed.stream.cancel();
       // A refusal message from the panel is a refusal (403), not a gateway fault: the player must not retry it through other gateways.
       const code = classifyNonMedia(sniffed.head, ct);
       return errorResponse(cors, code, code === 'HLS_MANIFEST_INVALID' ? 502 : 403, '', diag);
     }
     body = sniffed.stream;
+    if (looksJson && !ct.includes('json')) ct = 'application/json;charset=utf-8';
   }
 
   const out = cors({ 'Content-Type': ct || 'application/octet-stream', 'Cache-Control': 'no-store', ...diag });

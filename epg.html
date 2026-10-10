@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>TV Pro — دليل البرامج</title>
+<style>
+  :root { --bg:#080A0D; --panel:#12161c; --line:#232a33; --text:#e8ecf1; --muted:#8b95a3; --ok:#3ecf8e; --bad:#ff6b6b; --warn:#f5b041; --accent:#3d8bfd; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 -apple-system, "SF Pro Text", "Segoe UI", Tahoma, sans-serif; padding:16px; padding-bottom:48px; }
+  h1 { font-size:20px; margin:4px 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 16px; }
+  .row { display:flex; gap:8px; margin-bottom:12px; }
+  input { flex:1; min-width:0; background:var(--panel); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:12px; font-size:16px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:10px; padding:10px 14px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  .muted { color:var(--muted); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; }
+  .ch-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .ch-name { font-size:15px; font-weight:600; }
+  .ch-num { color:var(--muted); font-size:12px; margin-inline-start:6px; }
+  .now-title { font-size:14px; margin:8px 0 4px; }
+  .next-title { font-size:13px; color:var(--muted); margin-top:4px; }
+  .bar { height:4px; border-radius:999px; background:var(--line); overflow:hidden; margin:4px 0; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .times { font-size:12px; color:var(--muted); direction:ltr; unicode-bidi:plaintext; display:inline-block; }
+  .more { margin-top:8px; }
+  .day-list { margin-top:8px; border-top:1px solid var(--line); padding-top:8px; display:none; }
+  .day-list.open { display:block; }
+  .day-item { display:flex; gap:8px; font-size:13px; padding:4px 0; border-bottom:1px solid var(--line); }
+  .day-item:last-child { border-bottom:0; }
+  .day-item .t { color:var(--muted); min-width:48px; direction:ltr; unicode-bidi:plaintext; }
+  .day-item.live .t { color:var(--ok); }
+  #sentinel { height:1px; }
+</style>
+</head>
+<body>
+<h1>دليل البرامج</h1>
+<p class="lead">يعرض البرنامج الحالي والتالي لكل قناة من اشتراكك. يعمل حالياً مع مصادر Xtream Codes فقط. · <a href="/diag.html" style="color:var(--accent)">فحص القنوات</a></p>
+<div class="row">
+  <input id="q" placeholder="ابحث عن قناة بالاسم أو الرقم" inputmode="search">
+</div>
+<div id="status" class="muted"></div>
+<div id="list"></div>
+
+<script>
+(() => {
+  const GATEWAYS = ['https://great-fox-5853.abu00salmanr.deno.net', 'https://tvpro-gateway.rmz.deno.net', 'https://gateway.tv-pro.app', 'https://tvpro-gateway.abu00salman-r.workers.dev'];
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function idb() {
+    return new Promise((res, rej) => { const r = indexedDB.open('tvpro', 1); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onupgradeneeded = () => { r.transaction.abort(); rej(new Error('no-data')); }; });
+  }
+  function get(db, store, key) {
+    return new Promise((res, rej) => { const r = db.transaction(store, 'readonly').objectStore(store)[key === undefined ? 'getAll' : 'get'](key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  }
+  async function loadLibrary() {
+    const db = await idb();
+    const activeId = await get(db, 'kv', 'activePlaylist');
+    const playlists = await get(db, 'playlists');
+    const pl = playlists.find((p) => p.id === activeId) || playlists[0];
+    if (!pl) throw new Error('no-playlist');
+    const lib = await get(db, 'libraries', pl.id);
+    let secret;
+    if (pl.secret) {
+      const key = await get(db, 'kv', 'vault:key');
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: pl.secret.iv }, key, pl.secret.data);
+      secret = JSON.parse(new TextDecoder().decode(plain));
+    }
+    return { pl, lib, secret };
+  }
+  function serverOrigin(s) { const t = s.trim(); try { return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : 'http://' + t).origin; } catch { return t.replace(/\/+$/, ''); } }
+  const via = (gw, url) => { const u = new URL(gw.replace(/\/?$/, '/proxy')); u.searchParams.set('url', url); return u.toString(); };
+
+  async function timed(url, opts = {}, ms = 10000) {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+    try { const r = await fetch(url, { ...opts, signal: ctl.signal, cache: 'no-store' }); return { r }; }
+    catch (e) { return { err: e }; }
+    finally { clearTimeout(t); }
+  }
+
+  // player_api.php answers are never a live stream — they never hold open a second connection to the
+  // provider, so (unlike playback) there is no subscriber connection-limit reason to go through them one at a
+  // time; still, every gateway is tried in order and the first that answers wins, same fallback chain as diag.html.
+  async function xtreamApi(secret, params) {
+    const base = new URL(serverOrigin(secret.server) + '/player_api.php');
+    base.searchParams.set('username', secret.username);
+    base.searchParams.set('password', secret.password);
+    for (const [k, v] of Object.entries(params)) base.searchParams.set(k, v);
+    for (const gw of GATEWAYS) {
+      const res = await timed(via(gw, base.toString()));
+      if (res.err || !res.r.ok) continue;
+      try { return await res.r.json(); } catch { continue; }
+    }
+    throw new Error('epg-unavailable');
+  }
+
+  function b64(s) {
+    if (!s) return '';
+    try { const bin = atob(s); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return new TextDecoder('utf-8').decode(bytes); }
+    catch { return s; }
+  }
+  const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
+
+  function progressRow(item) {
+    if (!item) return '<div class="muted">لا توجد بيانات</div>';
+    const start = Number(item.start_timestamp), stop = Number(item.stop_timestamp);
+    const now = Date.now() / 1000;
+    const pct = stop > start ? Math.min(100, Math.max(0, ((now - start) / (stop - start)) * 100)) : 0;
+    return (
+      '<div class="now-title">' + esc(b64(item.title) || 'بدون عنوان') + '</div>' +
+      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+      '<span class="times">' + fmtTime(start) + ' – ' + fmtTime(stop) + '</span>'
+    );
+  }
+
+  async function loadNowNext(ch, secret, box) {
+    box.innerHTML = '<span class="muted">جارٍ التحميل…</span>';
+    try {
+      const data = await xtreamApi(secret, { action: 'get_short_epg', stream_id: ch.xt.id, limit: 2 });
+      const items = (data && data.epg_listings) || [];
+      if (!items.length) { box.innerHTML = '<span class="muted">لا توجد بيانات برامج لهذه القناة</span>'; return; }
+      const [now, next] = items;
+      box.innerHTML = progressRow(now) + (next ? '<div class="next-title">بعد ذلك: ' + esc(b64(next.title) || '-') + ' <span class="times">' + fmtTime(Number(next.start_timestamp)) + '</span></div>' : '');
+    } catch { box.innerHTML = '<span class="muted">تعذّر تحميل البرنامج (جرّب لاحقاً)</span>'; }
+  }
+
+  async function loadFullDay(ch, secret, box) {
+    box.innerHTML = '<div class="muted">جارٍ التحميل…</div>';
+    try {
+      const data = await xtreamApi(secret, { action: 'get_simple_data_table', stream_id: ch.xt.id });
+      const items = ((data && data.epg_listings) || []).slice(0, 40);
+      if (!items.length) { box.innerHTML = '<div class="muted">لا يتوفر جدول كامل لهذه القناة</div>'; return; }
+      const now = Date.now() / 1000;
+      box.innerHTML = items.map((it) => {
+        const start = Number(it.start_timestamp), stop = Number(it.stop_timestamp);
+        const live = now >= start && now < stop;
+        return '<div class="day-item' + (live ? ' live' : '') + '"><span class="t">' + fmtTime(start) + '</span><span>' + esc(b64(it.title) || '-') + '</span></div>';
+      }).join('');
+    } catch { box.innerHTML = '<div class="muted">تعذّر تحميل الجدول الكامل</div>'; }
+  }
+
+  // At most 3 channels' EPG load at once -- the provider's panel is a shared resource, same restraint as the
+  // one-route-at-a-time rule in diag.html, just relaxed because these are plain API calls, not open streams.
+  function makeLimiter(max) {
+    let active = 0; const queue = [];
+    const next = () => { if (active >= max || !queue.length) return; active++; const job = queue.shift(); job().finally(() => { active--; next(); }); };
+    return (job) => new Promise((resolve) => { queue.push(() => job().then(resolve, resolve)); next(); });
+  }
+  const limiter = makeLimiter(3);
+
+  function renderChannel(ch) {
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML =
+      '<div class="ch-head"><span class="ch-name">' + esc(ch.name || '') + '<span class="ch-num">#' + esc(ch.number ?? '') + '</span></span>' +
+      '<button class="ghost more" type="button">اليوم كامل</button></div>' +
+      '<div class="now-next"></div>' +
+      '<div class="day-list"></div>';
+    const nowNext = card.querySelector('.now-next');
+    const dayList = card.querySelector('.day-list');
+    const btn = card.querySelector('.more');
+    let dayLoaded = false;
+    btn.onclick = () => {
+      const open = dayList.classList.toggle('open');
+      btn.textContent = open ? 'إخفاء' : 'اليوم كامل';
+      if (open && !dayLoaded) { dayLoaded = true; loadFullDay(ch, card._secret, dayList); }
+    };
+    card._loadNowNext = (secret) => { card._secret = secret; return limiter(() => loadNowNext(ch, secret, nowNext)); };
+    return card;
+  }
+
+  let observer;
+  function observe(card) {
+    if (!observer) {
+      observer = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) { observer.unobserve(e.target); e.target._loadNowNext(window.__tvproSecret); }
+        }
+      }, { rootMargin: '200px' });
+    }
+    observer.observe(card);
+  }
+
+  async function run() {
+    $('status').textContent = 'جارٍ قراءة بيانات الاشتراك من هذا الجهاز…';
+    let lib, secret;
+    try { ({ lib, secret } = await loadLibrary()); }
+    catch (e) {
+      $('status').textContent = e.message === 'no-data' || e.message === 'no-playlist'
+        ? 'لا توجد قائمة محفوظة على هذا الجهاز. افتح هذه الصفحة من نفس المتصفح الذي تستخدم فيه TV Pro.'
+        : 'خطأ: ' + (e.message || e);
+      return;
+    }
+    if (!secret || secret.type !== 'xtream') {
+      $('status').textContent = 'دليل البرامج يعمل حالياً فقط مع مصادر Xtream Codes (مصدر M3U العادي لا يوفّر بيانات كافية لمطابقة القنوات).';
+      return;
+    }
+    window.__tvproSecret = secret;
+    const all = ((lib && lib.channels) || []).filter((c) => c.xt).sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+    if (!all.length) { $('status').textContent = 'لا توجد قنوات محفوظة.'; return; }
+    $('status').textContent = all.length + ' قناة.';
+
+    let shown = all;
+    function render() {
+      const list = $('list'); list.innerHTML = '';
+      for (const ch of shown) { const card = renderChannel(ch); list.appendChild(card); observe(card); }
+    }
+    render();
+
+    let t;
+    $('q').addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const q = $('q').value.trim().toLowerCase();
+        shown = !q ? all : all.filter((c) => String(c.number).includes(q) || (c.name || '').toLowerCase().includes(q));
+        render();
+      }, 150);
+    });
+  }
+  run();
+})();
+</script>
+</body>
+</html>
