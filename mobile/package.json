@@ -1,0 +1,17 @@
+{
+  "name": "tvpro-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TV Pro — Android app shell (Capacitor) for tv-pro.app",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.2.0"
+  }
+}
