@@ -1,0 +1,19 @@
+# Build context is the repository root so the gateway source is the single shared copy.
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: gateway-vps/Dockerfile
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      GATEWAY_DOMAIN: ${GATEWAY_DOMAIN:?set GATEWAY_DOMAIN, e.g. gw.tv-pro.app}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [gateway]
+volumes:
+  caddy_data:

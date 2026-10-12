@@ -1,0 +1,6 @@
+{$GATEWAY_DOMAIN} {
+	encode off
+	reverse_proxy gateway:8000 {
+		flush_interval -1
+	}
+}
