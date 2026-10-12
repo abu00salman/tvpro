@@ -232,3 +232,14 @@ for (const [name, gw] of Object.entries(builds)) {
     assert.equal(await r.text(), '[]');
   });
 }
+
+test('deno: a public-looking hostname that resolves to a private address is refused (DNS rebinding)', async () => {
+  globalThis.Deno = { resolveDns: async (_h, type) => (type === 'A' ? ['192.168.1.1'] : []) };
+  try {
+    routes['http://rebind.example.com/live/u/p/1.m3u8'] = text('#EXTM3U\n#EXTINF:1,\nseg.ts');
+    const r = await call(builds.deno, 'http://rebind.example.com/live/u/p/1.m3u8');
+    assert.equal(r.status, 403);
+    assert.equal(r.headers.get('x-tvpro-error'), 'BLOCKED_TARGET');
+    assert.equal(calls.length, 0, 'the private address is never contacted');
+  } finally { delete globalThis.Deno; }
+});

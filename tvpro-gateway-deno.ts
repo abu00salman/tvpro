@@ -102,8 +102,19 @@ function classifyNonMedia(head, ct) {
 }
 
 // ---- upstream fetch ----
+/** A public-looking hostname can still point at a private address (DNS rebinding), which would let a caller reach the
+ *  network the gateway runs in. Resolve the name first and refuse if any answer is private. Skipped where the runtime
+ *  has no DNS API; a name that does not resolve is left to fetch() to report. */
+async function assertPublicDns(url) {
+  const h = url.hostname;
+  if (isIPv4(h) || h.startsWith('[') || typeof Deno === 'undefined' || !Deno.resolveDns) return;
+  const answers = [];
+  for (const type of ['A', 'AAAA']) { try { answers.push(...await Deno.resolveDns(h, type)); } catch { /* no records of this type */ } }
+  if (answers.some((ip) => isBlockedHost(ip.includes(':') ? '[' + ip + ']' : ip))) throw new GatewayError('BLOCKED_TARGET', 403, 'hostname resolves to a private address');
+}
 async function fetchValidated(url, init, checkTarget, left = MAX_REDIRECTS) {
   checkTarget(url);
+  await assertPublicDns(url);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), UPSTREAM_TIMEOUT_MS);
   let res;
