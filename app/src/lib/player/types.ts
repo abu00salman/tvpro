@@ -4,7 +4,13 @@ export type PlaybackErrorKind = 'unavailable' | 'network' | 'format' | 'decode' 
 
 export interface PlaybackSource {
   url: string;
+  /** Original provider URL when `url` has been swapped for a gateway URL (used for format detection). */
+  detectUrl?: string;
   live: boolean;
+  /** Gateway-wrapped alternatives, tried in order when the page is HTTPS and the stream is plain HTTP. */
+  gatewayUrls?: string[];
+  /** Channel id, used by the "known good" tracker. */
+  __chId?: string;
   /** Resume position in seconds (recorded content only). */
   startAt?: number;
 }
@@ -18,6 +24,7 @@ export interface EngineOptions {
   preference: EnginePreference;
   quality: QualityPreference;
   forceNative?: boolean;
+  forceHls?: boolean;
   onFatal: (kind: PlaybackErrorKind, detail?: string) => void;
   onTracksChanged: () => void;
 }
