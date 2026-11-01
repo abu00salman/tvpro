@@ -104,9 +104,33 @@
 
     let res = await timed(playlistUrl);
     if (res.err) { step('✗', 'bad', 'القائمة: لا اتصال (' + res.err + ')'); return badge('bad', 'فشل'); }
-    let r = res.r, body = await r.text().catch(() => '');
+    let r = res.r, rawBuf = new Uint8Array(await r.arrayBuffer().catch(() => new ArrayBuffer(0)));
+    let body = new TextDecoder().decode(rawBuf);
     const info = (resp, ms) => 'HTTP ' + resp.status + ' · ' + (resp.headers.get('content-type') || '-') + ' · ' + ms + 'ms' + (resp.headers.get('x-tvpro-error') ? ' · ' + resp.headers.get('x-tvpro-error') : '') + (resp.headers.get('x-tvpro-upstream-status') ? ' · upstream ' + resp.headers.get('x-tvpro-upstream-status') : '');
-    if (!r.ok || !body.trimStart().startsWith('#EXTM3U')) { step('✗', 'bad', 'القائمة: ' + info(r, res.ms), body.slice(0, 300)); return badge('bad', 'فشل'); }
+    if (!r.ok) { step('✗', 'bad', 'القائمة: ' + info(r, res.ms), body.slice(0, 300)); return badge('bad', 'فشل'); }
+    if (!body.trimStart().startsWith('#EXTM3U')) {
+      // Not an HLS playlist at all: some providers/gateways answer the .m3u8 request with a raw,
+      // continuous MPEG-TS/MP4 stream instead (passthrough). That is a working stream, not a failure --
+      // only flag it as broken if the bytes don't look like a real media stream either.
+      const isTs = rawBuf[0] === 0x47, isMp4 = rawBuf.length > 8 && String.fromCharCode(...rawBuf.slice(4, 8)).match(/ftyp|styp|moof/);
+      if (isTs || isMp4) {
+        step('✓', 'ok', 'القائمة: ' + info(r, res.ms) + ' · ليست قائمة m3u8، بل بث مباشر (' + (isTs ? 'MPEG-TS' : 'MP4') + ') يُمرَّر كما هو', '');
+        step('✓', 'ok', 'مقطع الفيديو: نفس الرابط، ' + rawBuf.length + ' bytes · ' + (isTs ? 'MPEG-TS' : 'MP4'));
+        badge('ok', 'يعمل');
+        const btn = document.createElement('button'); btn.className = 'ghost'; btn.textContent = 'جرّب التشغيل هنا'; btn.style.marginTop = '8px';
+        btn.onclick = () => {
+          btn.remove();
+          const v = document.createElement('video'); v.controls = true; v.playsInline = true; v.muted = true; v.autoplay = true; v.src = playlistUrl;
+          const note = document.createElement('div'); note.className = 'step muted'; note.textContent = 'جارٍ التشغيل…';
+          v.addEventListener('playing', () => { note.className = 'step ok'; note.textContent = '✓ الفيديو يعمل عبر هذه البوابة'; log.push('  ✓ ' + name + ': native playback OK'); });
+          v.addEventListener('error', () => { const e = v.error; note.className = 'step bad'; note.textContent = '✗ خطأ تشغيل MediaError ' + (e && e.code) + ' ' + ((e && e.message) || ''); log.push('  ✗ ' + name + ': MediaError ' + (e && e.code) + ' ' + ((e && e.message) || '')); renderReport(); });
+          card.appendChild(v); card.appendChild(note);
+        };
+        card.appendChild(btn);
+        return;
+      }
+      step('✗', 'bad', 'القائمة: ' + info(r, res.ms), body.slice(0, 300)); return badge('bad', 'فشل');
+    }
     step('✓', 'ok', 'القائمة: ' + info(r, res.ms), body.slice(0, 220));
     let base = playlistUrl;
     if (body.includes('#EXT-X-STREAM-INF')) {
