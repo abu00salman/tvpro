@@ -21,6 +21,11 @@
       'demo.badge': 'بيانات تجريبية — لا يوجد اشتراك محفوظ على هذا الجهاز',
       'player.quality': 'الجودة', 'player.subtitle': 'الترجمة', 'player.audio': 'الصوت', 'player.sleep': 'مؤقت النوم',
       'player.auto': 'تلقائي', 'player.off': 'إيقاف',
+      'title.favorite': 'أضف إلى المفضلة', 'title.unfavorite': 'إزالة من المفضلة', 'title.favorited': 'في المفضلة',
+      'title.play': 'تشغيل', 'title.seasons': 'المواسم', 'title.season': 'الموسم', 'title.episode': 'الحلقة',
+      'title.synopsis_missing': 'لا يوجد وصف متاح لهذا العنوان.', 'title.loading': 'جارٍ التحميل…',
+      'title.not_found': 'تعذّر العثور على هذا العنوان.', 'title.demo_note': 'عنصر تجريبي — لا يمكن حفظ المفضلة فعليًا بدون اشتراك محفوظ.',
+      'title.back': 'رجوع',
     },
     en: {
       'nav.home': 'Home', 'nav.movies': 'Movies', 'nav.series': 'Series', 'nav.anime': 'Anime',
@@ -36,6 +41,11 @@
       'demo.badge': 'Demo data — no subscription saved on this device',
       'player.quality': 'Quality', 'player.subtitle': 'Subtitles', 'player.audio': 'Audio', 'player.sleep': 'Sleep timer',
       'player.auto': 'Auto', 'player.off': 'Off',
+      'title.favorite': 'Add to favorites', 'title.unfavorite': 'Remove from favorites', 'title.favorited': 'In favorites',
+      'title.play': 'Play', 'title.seasons': 'Seasons', 'title.season': 'Season', 'title.episode': 'Episode',
+      'title.synopsis_missing': 'No synopsis available for this title.', 'title.loading': 'Loading…',
+      'title.not_found': 'This title could not be found.', 'title.demo_note': 'Demo item — favoriting is not persisted without a saved subscription.',
+      'title.back': 'Back',
     },
   };
 

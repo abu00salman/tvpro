@@ -56,19 +56,35 @@
   const library = await TvproApp.getLibrary();
   TvproApp.renderDemoBanner(document.getElementById('main'), library.source);
 
-  const open = (item) => {
-    if (item.type === 'live' || item.live) TvproApp.openPlayer(item, library);
-    else TvproApp.openPlayer(item, library); // detail page is not built yet in this pass; opens the player directly
-  };
+  const open = (item) => TvproApp.openItem(item, library);
+  const play = (item) => TvproApp.openPlayer(item, library);
 
   const heroItems = library.source === 'demo'
     ? TvproDemo.heroItems()
     : [...library.movies.slice(0, 4), ...library.series.slice(0, 3)];
-  TvproHero.createHeroSlider(document.getElementById('heroSlider'), heroItems, open);
+  TvproHero.createHeroSlider(document.getElementById('heroSlider'), heroItems, play, open);
 
   const rowsEl = document.getElementById('rows');
-  const liveNow = library.channels.filter((c) => c.live).slice(0, 12);
+  const liveNow = library.channels.filter((c) => c.live !== false).slice(0, 12);
+
+  // Continue watching: real history entries resolved back to real items, newest first.
+  // Demo library has no history (nothing is ever written for demo data), so this row simply
+  // doesn't render there — it is never filled with placeholder "continue watching" items.
+  const historyEntries = Object.values(library.history || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const continueItems = historyEntries
+    .map((h) => TvproApp.resolveItem(library, h.kind, h.itemId))
+    .filter(Boolean)
+    .slice(0, 14);
+
+  const favoriteEntries = Object.values(library.favorites || {}).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  const favoriteItems = favoriteEntries
+    .map((f) => { const id = f.key.slice(2); return TvproApp.resolveItem(library, f.kind, id); })
+    .filter(Boolean)
+    .slice(0, 14);
+
+  TvproRows.row(rowsEl, 'home.continue', continueItems, open, { wide: true });
   TvproRows.row(rowsEl, 'home.live_now', liveNow, open, { wide: true });
+  TvproRows.row(rowsEl, 'nav.favorites', favoriteItems, open);
   TvproRows.row(rowsEl, 'home.recent_added', [...library.movies].slice(0, 14), open);
   TvproRows.row(rowsEl, 'nav.series', [...library.series].slice(0, 14), open);
   if (library.anime && library.anime.length) TvproRows.row(rowsEl, 'nav.anime', library.anime.slice(0, 14), open);

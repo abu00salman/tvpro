@@ -47,17 +47,19 @@
       if (result.ok) {
         return {
           source: 'real',
+          playlistId: result.playlist && result.playlist.id,
           secret: result.secret,
           channels: result.channels,
           movies: result.movies,
           series: result.series,
           anime: [], // the real schema has no separate anime bucket yet; items live inside movies/series groups
           favorites: result.favorites,
+          history: result.history,
         };
       }
     } catch (_e) { /* fall through to demo */ }
     const d = global.TvproDemo;
-    return { source: 'demo', secret: null, channels: d.channels, movies: d.movies, series: d.series, anime: d.anime, favorites: {} };
+    return { source: 'demo', playlistId: null, secret: null, channels: d.channels, movies: d.movies, series: d.series, anime: d.anime, favorites: {}, history: {} };
   }
 
   function renderDemoBanner(root, source) {
@@ -67,6 +69,39 @@
     banner.innerHTML = '<span>&#9432;</span><span data-i18n="demo.badge">' + global.TvproI18n.t('demo.badge') + '</span>';
     root.prepend(banner);
   }
+
+  /** Finds an item by (kind, id) across every bucket of a loaded library — used by title.html
+   *  and by the favorites/continue-watching rows to turn a stored key back into a real item. */
+  function resolveItem(library, kind, id) {
+    const pool = kind === 'channel' ? library.channels : kind === 'series' || kind === 'anime' ? [...library.series, ...(library.anime || [])] : library.movies;
+    return (pool || []).find((it) => it.id === id) || null;
+  }
+
+  /** Card-click routing used everywhere: a channel opens the player directly (linear TV has
+   *  no separate detail page, same as the shipped app); anything else goes to the detail page
+   *  first, same as tapping a poster in the reference design opens a detail view before playback. */
+  function openItem(item, library) {
+    if (item.kind === 'channel') { openPlayer(item, library); return; }
+    location.href = 'title.html?kind=' + encodeURIComponent(item.kind) + '&id=' + encodeURIComponent(item.id);
+  }
+
+  /** Toggles a favorite in memory AND persists it, in the exact real shape, when a real
+   *  playlist is active. For demo data (no real playlist to write to) the toggle stays
+   *  in-memory only for that page view — it is never written anywhere, and the caller should
+   *  disclose that (see title.js). */
+  async function toggleFavorite(item, library) {
+    const kind = item.kind;
+    if (library.source === 'real' && library.playlistId) {
+      library.favorites = await global.TvproStorage.toggleFavorite(library.playlistId, kind, item.id, library.favorites);
+    } else {
+      const key = kind[0] + ':' + item.id;
+      const next = { ...library.favorites };
+      if (next[key]) delete next[key]; else next[key] = { key, kind, addedAt: Date.now() };
+      library.favorites = next;
+    }
+    return library.favorites;
+  }
+  function isFavorite(item, library) { return !!(library.favorites && library.favorites[item.kind[0] + ':' + item.id]); }
 
   // ---- Player chrome + settings panel ----
   let playerEls = null;
@@ -163,6 +198,23 @@
       els.video.src = proxied;
     }
     els.video.play().catch(() => {});
+
+    // Continue-watching: only recorded for a REAL playlist, in the exact shape the shipped
+    // app itself writes (see storage.js recordHistory / TvproStorage.recordHistory), sampled
+    // every 20s of playback rather than on every timeupdate tick.
+    if (library && library.source === 'real' && library.playlistId && item.kind !== 'channel') {
+      let last = 0;
+      const onTick = () => {
+        const pos = els.video.currentTime, dur = els.video.duration;
+        if (!dur || pos - last < 20) return;
+        last = pos;
+        const key = global.TvproStorage.favoriteKey(item.kind, item.id);
+        global.TvproStorage.recordHistory(library.playlistId, { key, kind: item.kind, itemId: item.id, title: item.name, logo: item.poster || item.logo, position: pos, duration: dur }, library.history)
+          .then((next) => { library.history = next; });
+      };
+      els.video.addEventListener('timeupdate', onTick);
+      els.video.addEventListener('pause', onTick);
+    }
   }
 
   function closePlayer() {
@@ -179,5 +231,5 @@
     markActiveNav();
   });
 
-  global.TvproApp = { getLibrary, renderDemoBanner, openPlayer, closePlayer };
+  global.TvproApp = { getLibrary, renderDemoBanner, resolveItem, openItem, openPlayer, closePlayer, toggleFavorite, isFavorite };
 })(window);

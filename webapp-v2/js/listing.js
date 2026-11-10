@@ -50,7 +50,7 @@
         items = items.slice().sort((a, b) => sortSel.value === 'az' ? a.name.localeCompare(b.name) : (b.addedAt || 0) - (a.addedAt || 0));
         if (!items.length) { gridEl.innerHTML = ''; emptyEl.style.display = ''; return; }
         emptyEl.style.display = 'none';
-        TvproRows.grid(gridEl, items, (item) => TvproApp.openPlayer(item, library));
+        TvproRows.grid(gridEl, items, (item) => TvproApp.openItem(item, library));
       }
       [genreSel, yearSel, platformSel, sortSel].forEach((el) => el && el.addEventListener('change', apply));
       apply();

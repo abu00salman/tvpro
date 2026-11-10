@@ -211,4 +211,32 @@ html[dir="rtl"] .settings-panel { transform: translateX(-100%); }
 .settings-option select { background: rgba(255,255,255,.1); color: #fff; border: 0; border-radius: 8px; padding: .375rem .625rem; font-size: .875rem; }
 .settings-empty { font-size: .8125rem; color: rgba(255,255,255,.5); padding: .5rem 0; }
 
+/* ---- Title / detail page ---- */
+.title-hero { position: relative; border-radius: 20px; overflow: hidden; margin-bottom: 1.75rem; min-height: 20rem; background: #111; }
+.title-hero__media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.title-hero__media[data-fallback] { background: linear-gradient(160deg, hsl(var(--h, 215) 46% 30%), hsl(calc(var(--h, 215) + 36) 56% 12%)); }
+.title-hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(0,0,0,.92) 0%, rgba(0,0,0,.6) 45%, rgba(0,0,0,.1) 80%); }
+.title-hero__body { position: relative; z-index: 2; padding: 2rem 1.5rem; display: flex; flex-direction: column; gap: .875rem; min-height: 20rem; justify-content: flex-end; }
+@media (min-width: 1024px) { .title-hero__body { padding: 3rem 2.5rem; max-width: 46rem; } }
+.title-hero__title { font-size: 1.75rem; font-weight: 800; color: #fff; margin: 0; text-shadow: 0 2px 16px rgba(0,0,0,.5); }
+@media (min-width: 1024px) { .title-hero__title { font-size: 2.75rem; } }
+.title-hero__meta { display: flex; flex-wrap: wrap; gap: .5rem; font-size: .875rem; color: rgba(255,255,255,.8); }
+.title-hero__meta > span { display: inline-flex; align-items: center; height: 1.625rem; padding-inline: .7rem; border-radius: 999px; background: rgba(255,255,255,.14); backdrop-filter: blur(6px); }
+.title-hero__plot { color: rgba(255,255,255,.85); font-size: .9375rem; line-height: 1.6; max-width: 40rem; }
+.title-hero__actions { display: flex; align-items: center; gap: .625rem; margin-top: .25rem; }
+.title-fav { display: inline-flex; align-items: center; gap: .5rem; height: 2.75rem; padding-inline: 1.25rem; border-radius: 999px; background: rgba(255,255,255,.14); color: #fff; font-weight: 600; font-size: .9375rem; border: 1px solid rgba(255,255,255,.22); cursor: pointer; backdrop-filter: blur(8px); }
+.title-fav[aria-pressed="true"] { background: rgb(var(--live)); border-color: transparent; }
+.title-fav:hover { background: rgba(255,255,255,.22); }
+.title-fav[aria-pressed="true"]:hover { background: rgb(var(--live)); filter: brightness(1.1); }
+.title-demo-note { font-size: .75rem; color: rgba(255,255,255,.6); }
+.title-back { position: absolute; top: 1rem; inset-inline-start: 1rem; z-index: 3; }
+
+.season-block { margin-bottom: 1.5rem; }
+.season-block h3 { font-size: 1.0625rem; font-weight: 700; margin: 0 0 .75rem; }
+.episode-row { display: flex; align-items: center; gap: 1rem; padding: .75rem; border-radius: 14px; cursor: pointer; border: 0; background: transparent; width: 100%; text-align: start; color: inherit; }
+.episode-row:hover { background: rgb(var(--fg) / .05); }
+.episode-row__num { width: 2.25rem; height: 2.25rem; border-radius: 999px; background: rgb(var(--fg) / .08); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .875rem; flex-shrink: 0; }
+.episode-row__title { font-weight: 600; font-size: .9375rem; }
+.episode-row__meta { font-size: .8125rem; color: rgb(var(--muted)); }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

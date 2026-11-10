@@ -5,6 +5,16 @@
 (function (global) {
   'use strict';
 
+  /** Real posters/logos come from the IPTV panel's own storage, which the gateway's own
+   *  comments note is often hotlink-protected (see tvpro-gateway-deno.ts: "many IPTV panels
+   *  serve posters/logos... from storage that only answers requests carrying a same-origin
+   *  Referer") — so, like video, a real item's image is routed through the same gateway
+   *  rather than fetched directly from the browser. Demo items have no `logo` at all. */
+  function posterUrl(item) {
+    if (!item.logo || !/^https?:\/\//i.test(item.logo)) return item.logo || null;
+    return global.TvproGateway ? global.TvproGateway.via(global.TvproGateway.GATEWAYS[0], item.logo) : item.logo;
+  }
+
   function card(item, onOpen, opts) {
     opts = opts || {};
     const btn = document.createElement('button');
@@ -15,9 +25,10 @@
     const poster = document.createElement('span');
     poster.className = 'card__poster';
     poster.style.setProperty('--h', item.hue != null ? item.hue : 215);
-    if (item.poster) {
+    const src = posterUrl(item);
+    if (src) {
       const img = document.createElement('img');
-      img.src = item.poster; img.alt = ''; img.loading = 'lazy';
+      img.src = src; img.alt = ''; img.loading = 'lazy';
       poster.appendChild(img);
     } else {
       poster.setAttribute('data-fallback', '1');
@@ -25,7 +36,7 @@
       span.textContent = item.name;
       poster.appendChild(span);
     }
-    if (item.live) { const badge = document.createElement('span'); badge.className = 'card__live-badge'; badge.textContent = 'LIVE'; poster.appendChild(badge); }
+    if (item.kind === 'channel') { const badge = document.createElement('span'); badge.className = 'card__live-badge'; badge.textContent = 'LIVE'; poster.appendChild(badge); }
     btn.appendChild(poster);
 
     const title = document.createElement('div');
@@ -70,5 +81,5 @@
     items.forEach((item) => container.appendChild(card(item, onOpen)));
   }
 
-  global.TvproRows = { card, row, grid };
+  global.TvproRows = { card, row, grid, posterUrl };
 })(window);

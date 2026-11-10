@@ -8,15 +8,16 @@
 (function (global) {
   'use strict';
 
-  function buildSlide(item, onOpen) {
+  function buildSlide(item, onPlay, onInfo) {
     const slide = document.createElement('div');
     slide.className = 'hero-slide';
     slide.style.setProperty('--h', item.hue != null ? item.hue : 215);
 
-    if (item.poster) {
+    const src = global.TvproRows ? global.TvproRows.posterUrl(item) : item.logo;
+    if (src) {
       const img = document.createElement('img');
       img.className = 'hero-slide__media';
-      img.src = item.poster; img.alt = ''; img.setAttribute('aria-hidden', 'true'); img.draggable = false;
+      img.src = src; img.alt = ''; img.setAttribute('aria-hidden', 'true'); img.draggable = false;
       slide.appendChild(img);
     } else {
       const fallback = document.createElement('div');
@@ -50,11 +51,11 @@
     const play = document.createElement('button');
     play.type = 'button'; play.className = 'hero-play';
     play.textContent = strings ? strings.t('home.play') : 'Play';
-    play.addEventListener('click', (e) => { e.stopPropagation(); onOpen(item); });
+    play.addEventListener('click', (e) => { e.stopPropagation(); onPlay(item); });
     const info = document.createElement('button');
     info.type = 'button'; info.className = 'hero-ghost';
     info.textContent = strings ? strings.t('home.more_info') : 'More info';
-    info.addEventListener('click', (e) => { e.stopPropagation(); onOpen(item); });
+    info.addEventListener('click', (e) => { e.stopPropagation(); onInfo(item); });
     actions.appendChild(play); actions.appendChild(info);
     body.appendChild(actions);
 
@@ -62,14 +63,14 @@
     return slide;
   }
 
-  function createHeroSlider(container, items, onOpen) {
+  function createHeroSlider(container, items, onPlay, onInfo) {
     if (!items || !items.length) { container.style.display = 'none'; return null; }
     container.innerHTML = '';
     container.classList.add('hero-slider');
 
     const track = document.createElement('div');
     track.className = 'hero-track';
-    items.forEach((item) => track.appendChild(buildSlide(item, onOpen)));
+    items.forEach((item) => track.appendChild(buildSlide(item, onPlay, onInfo || onPlay)));
     container.appendChild(track);
 
     let index = 0, autoplayTimer = null, dragging = false, startX = 0, startTranslate = 0, currentTranslate = 0, width = container.clientWidth;

@@ -92,5 +92,48 @@
     try { return JSON.parse(localStorage.getItem('tvpro:settings') || '{}'); } catch (_e) { return {}; }
   }
 
-  global.TvproStorage = { loadActiveLibrary, readSettings };
+  function storePut(db, store, value, key) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(store, 'readwrite');
+      const req = key === undefined ? tx.objectStore(store).put(value) : tx.objectStore(store).put(value, key);
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /** The exact favorites-key convention the shipped app uses (reverse-engineered from the
+   *  compiled bundle: `ap(kind, id) = kind[0] + ':' + id`, e.g. "m:<hash>" for a movie,
+   *  "s:<hash>" for a series, "c:<hash>" for a channel). Getting this wrong would silently
+   *  desync from the real app's own favorites, so it is reproduced verbatim rather than
+   *  reinvented. */
+  function favoriteKey(kind, id) { return kind[0] + ':' + id; }
+
+  /** Toggles one favorite and writes it back to the REAL store/key the shipped app reads
+   *  (kv["favorites:<playlistId>"]), in the exact shape the bundle itself writes:
+   *  { [key]: { key, kind, addedAt } }, entry removed (not set to false) when un-favoriting.
+   *  Confirmed against the bundle's own toggle function (`ev`) and its debounced persist
+   *  call (`db.put("kv", state.favorites, "favorites:" + playlistId)`). */
+  async function toggleFavorite(playlistId, kind, id, currentFavorites) {
+    const key = favoriteKey(kind, id);
+    const next = { ...currentFavorites };
+    if (next[key]) delete next[key]; else next[key] = { key, kind, addedAt: Date.now() };
+    const db = await openDb();
+    await storePut(db, 'kv', next, 'favorites:' + playlistId);
+    return next;
+  }
+
+  /** Records a watch-progress entry in the REAL history shape/key the shipped app uses
+   *  (kv["history:<playlistId>"]): { [key]: { key, kind, itemId, title, logo, position,
+   *  duration, updatedAt, episodes? } }, confirmed against the bundle's own `ey`/`ex`/`eb`
+   *  helpers. `entry.key` must be `favoriteKey(kind, itemId)` for a movie/channel, or the
+   *  series' own key (with a nested `episodes[episodeId]` map) for a series episode. */
+  async function recordHistory(playlistId, entry, currentHistory) {
+    const key = entry.key;
+    const next = { ...currentHistory, [key]: { ...(currentHistory[key] || {}), ...entry, updatedAt: Date.now() } };
+    const db = await openDb();
+    await storePut(db, 'kv', next, 'history:' + playlistId);
+    return next;
+  }
+
+  global.TvproStorage = { loadActiveLibrary, readSettings, favoriteKey, toggleFavorite, recordHistory };
 })(window);

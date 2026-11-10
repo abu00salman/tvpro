@@ -22,10 +22,10 @@
     const q = norm(query);
     const match = (name) => !q || norm(name).includes(q);
     return {
-      movie: library.movies.filter((i) => match(i.name)).map((i) => ({ ...i, type: 'movie' })),
-      series: library.series.filter((i) => match(i.name)).map((i) => ({ ...i, type: 'series' })),
-      anime: (library.anime || []).filter((i) => match(i.name)).map((i) => ({ ...i, type: 'anime' })),
-      live: library.channels.filter((i) => match(i.name)).map((i) => ({ ...i, type: 'live' })),
+      movie: library.movies.filter((i) => match(i.name)),
+      series: library.series.filter((i) => match(i.name)),
+      anime: (library.anime || []).filter((i) => match(i.name)),
+      live: library.channels.filter((i) => match(i.name)),
     };
   }
 
@@ -63,7 +63,7 @@
           if (!items.length) { resultsEl.innerHTML = stateHtml('search.empty'); return; }
           resultsEl.innerHTML = '';
           resultsEl.className = 'grid-posters';
-          TvproRows.grid(resultsEl, items, (item) => TvproApp.openPlayer(item, library));
+          TvproRows.grid(resultsEl, items, (item) => TvproApp.openItem(item, library));
         } catch (_e) {
           resultsEl.innerHTML = stateHtml('search.error');
         }
