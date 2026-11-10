@@ -142,7 +142,7 @@ browser. Found and fixed by comparing TV Pro's engine picker against two referen
 standard, working approach — not a guess. The engine picker now tries `mpegts.js` first for a live source that is
 neither an HLS playlist nor a simple native container, falling back to the previous (Safari-native / hls.js)
 attempt unchanged if mpegts.js fails to load or isn't supported, so there is no regression risk for any source
-that already worked. `mpegts.js` (Apache-2.0, v1.7.3) is vendored same-origin at
+that already worked. `mpegts.js` (Apache-2.0, v1.7.3 at the time; now v1.8.2, which adds ManagedMediaSource so raw-TS live plays on iPhone iOS 17.1+) is vendored same-origin at
 `/_next/static/vendor/mpegts.min.js` rather than loaded from a CDN: the site's own CSP
 (`script-src 'self' 'unsafe-inline'`) blocks any cross-origin `<script src>` outright — confirmed while testing
 this, not assumed — so a same-origin file is the only way a lazily-loaded script tag works here at all, and it

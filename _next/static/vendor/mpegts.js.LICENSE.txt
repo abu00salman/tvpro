@@ -1,8 +1,7 @@
-mpegts.js v1.7.3 (vendored as mpegts.min.js)
-https://github.com/xqq/mpegts.js
-
-Licensed under the Apache License, Version 2.0.
-http://www.apache.org/licenses/LICENSE-2.0
-
-Vendored locally (same-origin) instead of loaded from a CDN so it satisfies this site's
-Content-Security-Policy (script-src 'self' 'unsafe-inline') without weakening it.
+/*!
+ * @overview es6-promise - a tiny implementation of Promises/A+.
+ * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors (Conversion to ES6 API by Jake Archibald)
+ * @license   Licensed under MIT license
+ *            See https://raw.githubusercontent.com/stefanpenner/es6-promise/master/LICENSE
+ * @version   v4.2.8+1e68dce6
+ */

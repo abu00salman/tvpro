@@ -1,0 +1,121 @@
+/* ==== TV Pro design layer (source: design/tvx.css, appended to the compiled stylesheet by design/build.mjs) ==== */
+
+/* ---- Tokens: system type, iOS grouped surfaces ---- */
+:root,html[lang=ar]{
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Arabic","Geist","IBM Plex Sans Arabic","Segoe UI",Roboto,"Noto Sans Arabic",system-ui,sans-serif;
+  --font-mono:ui-monospace,"SF Mono","Geist Mono",Menlo,Consolas,monospace;
+}
+:root{
+  --base:242 242 247;--surface:255 255 255;--raised:229 229 234;
+  --fg:17 17 19;--muted:99 99 104;--faint:122 122 128;
+  --accent:0 113 227;--accent-soft:229 241 255;--live:255 59 48;
+  --line:rgba(60,60,67,.12);--line-strong:rgba(60,60,67,.24);
+  --tvx-shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+  --tvx-shadow-lift:0 2px 6px rgba(0,0,0,.06),0 16px 36px rgba(0,0,0,.12);
+  --tvx-ease:cubic-bezier(.2,.8,.2,1);
+}
+[data-theme=dark]{
+  --base:0 0 0;--surface:28 28 30;--raised:44 44 46;
+  --fg:255 255 255;--muted:174 174 178;--faint:124 124 130;
+  --accent:10 132 255;--accent-soft:10 34 64;--live:255 69 58;
+  --line:rgba(84,84,88,.45);--line-strong:rgba(110,110,116,.7);
+  --tvx-shadow:none;--tvx-shadow-lift:0 18px 40px rgba(0,0,0,.6);
+}
+body{font-feature-settings:normal;letter-spacing:-.003em}
+html[lang=ar] body,html[lang=ar] h1,html[lang=ar] h2,html[lang=ar] h3,html[lang=ar] p,html[lang=ar] span,html[lang=ar] a,html[lang=ar] button{letter-spacing:0}
+.font-mono{font-family:var(--font-sans);font-variant-numeric:tabular-nums}
+
+/* ---- Focus: one clear ring for keyboard and TV remotes ---- */
+:focus-visible{outline:3px solid rgb(var(--accent));outline-offset:2px}
+
+/* ---- Type scale: large titles ---- */
+main h1{font-size:2.125rem;line-height:1.12;font-weight:700}
+main section>div>h2,main section>h2:not(.eyebrow){font-size:1.375rem;line-height:1.2;font-weight:700}
+.eyebrow{text-transform:none;letter-spacing:0;font-size:.8125rem;font-weight:400;color:rgb(var(--muted));padding-inline:1rem}
+@media (min-width:1024px){main h1{font-size:2.5rem}}
+
+/* ---- Top bar ---- */
+header.pt-safe{border-bottom-color:transparent;background-color:rgb(var(--base)/.72);-webkit-backdrop-filter:saturate(180%) blur(24px);backdrop-filter:saturate(180%) blur(24px)}
+header.pt-safe button.rounded-md,header.pt-safe a.rounded-md{border-radius:999px}
+
+/* ---- Buttons and fields ---- */
+.btn,.btn-primary,.btn-quiet,.btn-ghost{border-radius:999px;font-weight:600;font-size:.9375rem;transition:transform .2s var(--tvx-ease),background-color .15s,filter .15s,opacity .15s}
+.btn:active,.btn-primary:active,.btn-quiet:active,.btn-ghost:active{transform:scale(.96);opacity:.85}
+.btn-quiet{border-color:transparent;background-color:rgb(var(--fg)/.07)}
+.btn-quiet:hover{background-color:rgb(var(--fg)/.11)}
+.field{border-radius:12px;border-color:transparent;background-color:rgb(var(--fg)/.06);font-size:1rem}
+.field:hover{border-color:transparent;background-color:rgb(var(--fg)/.09)}
+.field:focus{border-color:rgb(var(--accent));background-color:rgb(var(--surface))}
+input.field.text-sm,select.field.text-sm{font-size:1rem}
+input[type=search].field{border-radius:14px}
+
+/* ---- Cards and grouped lists ---- */
+.card{border-radius:20px;border-color:transparent;box-shadow:var(--tvx-shadow)}
+.card.border-accent\/40{border-color:rgb(var(--accent)/.55)}
+[role=radiogroup].rounded-md{border-radius:10px;border-color:transparent;background-color:rgb(var(--fg)/.07);padding:2px}
+[role=radiogroup] [role=radio]{border-radius:8px}
+[role=radiogroup] [role=radio][aria-checked=true]{background-color:rgb(var(--surface));box-shadow:0 1px 3px rgba(0,0,0,.14)}
+[data-theme=dark] [role=radiogroup] [role=radio][aria-checked=true]{background-color:rgb(99 99 102)}
+
+/* ---- Glass ---- */
+.glass{background-color:rgb(var(--surface)/.84);-webkit-backdrop-filter:saturate(180%) blur(28px);backdrop-filter:saturate(180%) blur(28px)}
+
+/* ---- Floating tab bar (phones and tablets) ---- */
+.tvx-tabbar{inset-inline:.75rem;bottom:calc(env(safe-area-inset-bottom,0px) + .625rem);padding-bottom:0;border-width:1px;border-color:var(--line);border-radius:30px;overflow:hidden;box-shadow:0 10px 34px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);max-width:34rem;margin-inline:auto}
+[data-theme=dark] .tvx-tabbar{box-shadow:0 12px 36px rgba(0,0,0,.7)}
+.tvx-tabs{height:3.875rem;padding:.3125rem;gap:.125rem}
+.tvx-tabs>a,.tvx-tabs>button{border-radius:24px;font-size:.6875rem;font-weight:600;gap:.1875rem;transition:background-color .2s var(--tvx-ease),color .2s,transform .2s var(--tvx-ease)}
+.tvx-tabs>a:active,.tvx-tabs>button:active{transform:scale(.94)}
+.tvx-tabs>a[aria-current=page],.tvx-tabs>button[aria-expanded=true]{background-color:rgb(var(--fg)/.08)}
+.tvx-tabs>a:focus-visible,.tvx-tabs>button:focus-visible{outline-offset:-3px}
+.tvx-more{grid-template-columns:repeat(4,minmax(0,1fr));padding:.75rem .5rem;border-bottom-color:var(--line)}
+.tvx-more>a{border-radius:18px;font-size:.75rem;font-weight:500;gap:.375rem;padding-block:.875rem}
+.tvx-more>a:active{background-color:rgb(var(--fg)/.08)}
+
+/* ---- Home: channel cards ---- */
+main button.group>span.aspect-video{border-radius:20px;border-color:transparent;box-shadow:var(--tvx-shadow);transition:transform .25s var(--tvx-ease),box-shadow .25s var(--tvx-ease)}
+@media (hover:hover){main button.group:hover>span.aspect-video{transform:translateY(-3px) scale(1.02);box-shadow:var(--tvx-shadow-lift)}}
+main button.group:focus-visible{outline:none}
+main button.group:focus-visible>span.aspect-video{outline:3px solid rgb(var(--accent));outline-offset:3px;transform:scale(1.03);box-shadow:var(--tvx-shadow-lift)}
+main button.group>span[dir=auto]{margin-top:.625rem;font-size:.9375rem;font-weight:600}
+main button.group>span.text-xs{font-size:.8125rem}
+main button.group>span.aspect-video>span.absolute.rounded-full{background-color:rgba(0,0,0,.34);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-weight:600}
+
+/* ---- Channels without a logo: coloured initials (hue set by the page helper) ---- */
+.tvx-mono:not(:has(img)){background:linear-gradient(140deg,hsl(var(--tvx-h,215) 62% 54%),hsl(calc(var(--tvx-h,215) + 32) 66% 40%)) !important;color:#fff !important;font-weight:700;border-radius:11px;letter-spacing:.02em}
+.tvx-mono-card:not(:has(img)){background:linear-gradient(140deg,hsl(var(--tvx-h,215) 60% 52%),hsl(calc(var(--tvx-h,215) + 32) 66% 36%)) !important}
+.tvx-mono-card:not(:has(img)) .tvx-mono{background:transparent !important;width:auto;height:auto;font-size:2rem;font-weight:800;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+
+/* ---- Category chips (below the xl sidebar breakpoint) ---- */
+@media (max-width:1279.98px){
+  nav button.rounded-full[aria-pressed]{height:2.25rem;padding-inline:1rem;border-color:transparent;background-color:rgb(var(--fg)/.07);color:rgb(var(--fg));font-size:.9375rem;font-weight:500}
+  nav button.rounded-full[aria-pressed=true]{background-color:rgb(var(--fg));color:rgb(var(--base));font-weight:600}
+}
+
+/* ---- Channel list rows ---- */
+[role=listbox] [role=option]{border-radius:14px}
+[role=listbox] [role=option]>span.h-10.w-10{height:2.75rem;width:2.75rem;border-radius:11px}
+[role=listbox] [role=option] span[dir=auto]{font-size:1rem;font-weight:600}
+[role=listbox] [role=option] span.text-xs{font-size:.8125rem}
+[role=listbox] [role=option][aria-selected=true]{background-color:rgb(var(--accent)/.12)}
+
+/* ---- Player ---- */
+section>div.group.bg-black button.grid.h-10.w-10{border-radius:999px;height:2.75rem;width:2.75rem}
+section>div.group.bg-black button.grid.h-10.w-10:active{background-color:rgba(255,255,255,.22)}
+section>div.group.bg-black [role=alert]{background:radial-gradient(120% 90% at 50% 40%,rgba(38,38,42,.94),rgba(0,0,0,.96))}
+section>div.group.bg-black [role=alert] p{font-size:1.0625rem;font-weight:600}
+section>div.group.bg-black [role=alert] .btn{height:2.75rem;padding-inline:1.5rem}
+@media (min-width:1024px){section>div.group.bg-black{border-radius:22px}}
+
+/* ---- Empty states ---- */
+main .mx-auto.max-w-sm>span.grid.h-14.w-14{height:4.5rem;width:4.5rem;border-radius:22px;border-color:transparent;background-color:rgb(var(--fg)/.06);color:rgb(var(--muted))}
+main .mx-auto.max-w-sm>h2{font-size:1.375rem;font-weight:700}
+
+/* ---- Desktop sidebar ---- */
+aside nav a.rounded-md{border-radius:12px;font-weight:500}
+aside nav a[aria-current=page]{background-color:rgb(var(--fg)/.08)}
+
+/* ---- Motion ---- */
+.view-enter{animation:view-in .32s var(--tvx-ease) both}
+@media (prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms !important;transition-duration:.01ms !important}}
+.field:focus-visible{outline:none;box-shadow:0 0 0 4px rgb(var(--accent)/.22)}
