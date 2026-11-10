@@ -10,7 +10,7 @@
     ar: {
       'nav.home': 'الرئيسية', 'nav.movies': 'أفلام', 'nav.series': 'مسلسلات', 'nav.anime': 'أنمي',
       'nav.live': 'البث المباشر', 'nav.search': 'بحث', 'nav.favorites': 'المفضلة', 'nav.recent': 'شوهد مؤخرًا',
-      'nav.settings': 'الإعدادات',
+      'nav.settings': 'الإعدادات', 'nav.guide': 'دليل البرامج',
       'home.featured': 'مميز', 'home.play': 'تشغيل', 'home.more_info': 'التفاصيل',
       'home.continue': 'متابعة المشاهدة', 'home.recent_added': 'أُضيف حديثًا', 'home.live_now': 'مباشر الآن', 'home.top_rated': 'الأعلى تقييمًا',
       'search.placeholder': 'ابحث عن فيلم أو مسلسل أو قناة…', 'search.tab.all': 'الكل', 'search.tab.movie': 'أفلام',
@@ -30,7 +30,7 @@
     en: {
       'nav.home': 'Home', 'nav.movies': 'Movies', 'nav.series': 'Series', 'nav.anime': 'Anime',
       'nav.live': 'Live TV', 'nav.search': 'Search', 'nav.favorites': 'Favorites', 'nav.recent': 'Recently watched',
-      'nav.settings': 'Settings',
+      'nav.settings': 'Settings', 'nav.guide': 'TV Guide',
       'home.featured': 'Featured', 'home.play': 'Play', 'home.more_info': 'More info',
       'home.continue': 'Continue watching', 'home.recent_added': 'Recently added', 'home.live_now': 'Live now', 'home.top_rated': 'Top rated',
       'search.placeholder': 'Search movies, series, channels…', 'search.tab.all': 'All', 'search.tab.movie': 'Movies',

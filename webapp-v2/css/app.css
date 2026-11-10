@@ -239,4 +239,23 @@ html[dir="rtl"] .settings-panel { transform: translateX(-100%); }
 .episode-row__title { font-weight: 600; font-size: .9375rem; }
 .episode-row__meta { font-size: .8125rem; color: rgb(var(--muted)); }
 
+/* ---- EPG / TV guide ---- */
+.epg-list { display: flex; flex-direction: column; gap: .625rem; }
+.epg-row { background: rgb(var(--surface)); border: 1px solid var(--line); border-radius: 16px; padding: 1rem; box-shadow: var(--shadow); }
+.epg-row__head { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .5rem; }
+.epg-row__name { font-weight: 700; font-size: .9375rem; }
+.epg-row__num { color: rgb(var(--muted)); font-size: .75rem; }
+.epg-now { font-size: .875rem; margin-bottom: .375rem; }
+.epg-bar { height: 4px; border-radius: 999px; background: rgb(var(--fg) / .1); overflow: hidden; margin: .375rem 0; }
+.epg-bar > i { display: block; height: 100%; background: rgb(var(--accent)); }
+.epg-times { font-size: .75rem; color: rgb(var(--muted)); direction: ltr; unicode-bidi: plaintext; display: inline-block; }
+.epg-next { font-size: .8125rem; color: rgb(var(--muted)); margin-top: .25rem; }
+.epg-more-btn { margin-top: .625rem; height: 2rem; padding-inline: .875rem; border-radius: 999px; border: 0; background: rgb(var(--fg) / .07); font-size: .8125rem; font-weight: 600; cursor: pointer; }
+.epg-day-list { margin-top: .625rem; border-top: 1px solid var(--line); padding-top: .625rem; display: none; }
+.epg-day-list.open { display: block; }
+.epg-day-item { display: flex; gap: .625rem; font-size: .8125rem; padding: .25rem 0; border-bottom: 1px solid var(--line); }
+.epg-day-item:last-child { border-bottom: 0; }
+.epg-day-item .t { color: rgb(var(--muted)); min-width: 3rem; direction: ltr; unicode-bidi: plaintext; }
+.epg-day-item.live .t { color: rgb(var(--accent)); font-weight: 700; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
