@@ -127,7 +127,23 @@ var pend=0;new MutationObserver(function(){if(pend)return;pend=1;setTimeout(func
 /* ---------- iPhone: one tap on fullscreen / PiP even while the auto-hidden controls ignore taps ---------- */
 if(IOS)document.addEventListener("click",function(e){var bs=document.querySelectorAll('button[aria-label^="ملء الشاشة"],button[aria-label^="Full screen"],button[aria-label^="صورة داخل صورة"],button[aria-label^="Picture in picture"]');for(var i=0;i<bs.length;i++){var r=bs[i].getBoundingClientRect();if(!r.width||e.clientX<r.left-6||e.clientX>r.right+6||e.clientY<r.top-6||e.clientY>r.bottom+6)continue;
  var root=bs[i].parentElement;while(root&&!root.querySelector("video"))root=root.parentElement;var v=root&&root.querySelector("video");if(!v||v.readyState<1)return;var pip=/صورة|Picture/.test(bs[i].getAttribute("aria-label"));
- try{if(pip){if(v.webkitSetPresentationMode&&v.webkitSupportsPresentationMode&&v.webkitSupportsPresentationMode("picture-in-picture"))v.webkitSetPresentationMode(v.webkitPresentationMode==="picture-in-picture"?"inline":"picture-in-picture");else if(v.requestPictureInPicture)v.requestPictureInPicture();else return}else{if(!v.webkitEnterFullscreen)return;v.webkitEnterFullscreen()}e.preventDefault();e.stopPropagation()}catch(x){}return}},true)})();
+ try{if(pip){if(v.webkitSetPresentationMode&&v.webkitSupportsPresentationMode&&v.webkitSupportsPresentationMode("picture-in-picture"))v.webkitSetPresentationMode(v.webkitPresentationMode==="picture-in-picture"?"inline":"picture-in-picture");else if(v.requestPictureInPicture)v.requestPictureInPicture();else return}else{if(!v.webkitEnterFullscreen)return;v.webkitEnterFullscreen()}e.preventDefault();e.stopPropagation()}catch(x){}return}},true);
+
+/* ---------- Picture-in-Picture for every platform other than iOS (confirmed broken, not guessed) ----------
+   Verified live in a real Chromium run against this exact compiled bundle, by monkey-patching
+   HTMLMediaElement.prototype.requestPictureInPicture before the page loaded: clicking the player's own PiP
+   button (real aria-label, real trusted mouse click) never calls the browser's Picture-in-Picture API at all.
+   The button, icon and translation exist, but nothing in the compiled bundle wires it to
+   video.requestPictureInPicture() outside the iOS-only branch above (which uses iOS's own
+   webkitSetPresentationMode/webkitEnterFullscreen, confirmed working and left untouched). The Full screen
+   button was checked the same way and does call Element.prototype.requestFullscreen correctly, so it is not
+   touched here -- this adds only the missing PiP call, for desktop and Android browsers and any smart-TV
+   browser that implements the standard Picture-in-Picture API. */
+if(!IOS)document.addEventListener("click",function(e){var bs=document.querySelectorAll('button[aria-label^="صورة داخل صورة"],button[aria-label^="Picture in picture"]');for(var i=0;i<bs.length;i++){var r=bs[i].getBoundingClientRect();if(!r.width||e.clientX<r.left-6||e.clientX>r.right+6||e.clientY<r.top-6||e.clientY>r.bottom+6)continue;
+ if(!document.pictureInPictureEnabled)return;
+ var root=bs[i].parentElement;while(root&&!root.querySelector("video"))root=root.parentElement;var v=root&&root.querySelector("video");if(!v||v.disablePictureInPicture)return;
+ try{if(document.pictureInPictureElement)document.exitPictureInPicture().catch(function(){});else if(v.requestPictureInPicture)v.requestPictureInPicture().catch(function(){})}catch(x){}
+ return}},true)})();
 
 
 ;(function(){if(typeof window==="undefined"||window.__tvproBuildDemo)return;
