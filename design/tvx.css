@@ -68,7 +68,7 @@ input[type=search].field{border-radius:14px}
 .tvx-tabs>a:active,.tvx-tabs>button:active{transform:scale(.94)}
 .tvx-tabs>a[aria-current=page],.tvx-tabs>button[aria-expanded=true]{background-color:rgb(var(--fg)/.08)}
 .tvx-tabs>a:focus-visible,.tvx-tabs>button:focus-visible{outline-offset:-3px}
-.tvx-more{grid-template-columns:repeat(4,minmax(0,1fr));padding:.75rem .5rem;border-bottom-color:var(--line)}
+.tvx-more{padding:.75rem .5rem;border-bottom-color:var(--line)}
 .tvx-more>a{border-radius:18px;font-size:.75rem;font-weight:500;gap:.375rem;padding-block:.875rem}
 .tvx-more>a:active{background-color:rgb(var(--fg)/.08)}
 
@@ -119,3 +119,11 @@ aside nav a[aria-current=page]{background-color:rgb(var(--fg)/.08)}
 .view-enter{animation:view-in .32s var(--tvx-ease) both}
 @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 .field:focus-visible{outline:none;box-shadow:0 0 0 4px rgb(var(--accent)/.22)}
+
+/* ---- Posters (movies, series) ---- */
+main button.group>span.rounded-md.border{border-radius:14px;border-color:transparent;box-shadow:var(--tvx-shadow)}
+main button.group:focus-visible>span.rounded-md.border{outline:3px solid rgb(var(--accent));outline-offset:3px}
+.tvx-poster:not(:has(img)){background:linear-gradient(160deg,hsl(var(--tvx-h,215) 42% 44%),hsl(calc(var(--tvx-h,215) + 36) 52% 20%)) !important}
+.tvx-poster:not(:has(img))>span[aria-hidden]>span.line-clamp-3{color:#fff;font-size:1rem;font-weight:700}
+.tvx-poster:not(:has(img))>span[aria-hidden]>span.bg-accent{background-color:rgba(255,255,255,.7)}
+.tvx-more{grid-template-columns:repeat(3,minmax(0,1fr))}
