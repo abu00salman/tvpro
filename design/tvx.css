@@ -127,3 +127,127 @@ main button.group:focus-visible>span.rounded-md.border{outline:3px solid rgb(var
 .tvx-poster:not(:has(img))>span[aria-hidden]>span.line-clamp-3{color:#fff;font-size:1rem;font-weight:700}
 .tvx-poster:not(:has(img))>span[aria-hidden]>span.bg-accent{background-color:rgba(255,255,255,.7)}
 .tvx-more{grid-template-columns:repeat(3,minmax(0,1fr))}
+
+/* ==== Pass 2: watched.cx-styled visual pass ====
+   Source: design/tvx.css, appended to the compiled stylesheet by design/build.mjs.
+   Reference: watched.cx screenshots (visual/layout reference only — no assets, logos or
+   stream links copied). This pass only restyles TV Pro's own, already-rendered DOM: it
+   never fabricates content, moves React-owned nodes, or invents data. */
+
+/* ---- Deeper charcoal surfaces in dark mode (keep light mode intact) ---- */
+[data-theme=dark]{
+  --base:5 5 7;--surface:17 17 20;--raised:28 28 32;
+  --line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.16);
+}
+
+/* ---- Primary action: bold white pill (play, continue, etc.) ---- */
+.btn-primary{border-radius:999px;background-color:#fff !important;color:#0a0a0c !important;font-weight:700;border-color:transparent}
+.btn-primary:hover{background-color:#f0f0f0 !important}
+.btn-primary:active{background-color:#e2e2e2 !important}
+[data-theme=dark] .btn-primary svg{color:#0a0a0c}
+
+/* ---- Top navigation: capsule pill bar (desktop) ----
+   The sidebar <aside> + content column are flex row siblings of
+   `div.flex.h-full.overflow-hidden`; stacking that flex column turns the
+   existing sidebar into a horizontal top bar with no DOM changes. */
+@media (min-width:1024px){
+  div.flex.h-full.overflow-hidden{flex-direction:column}
+  div.flex.h-full.overflow-hidden>aside{
+    display:flex !important;flex-direction:row;align-items:center;
+    width:100% !important;height:4.25rem;min-height:4.25rem;
+    border-inline-end:0;border-bottom:1px solid var(--line);
+    padding:0 1.5rem;gap:1.5rem;position:sticky;top:0;z-index:40;
+    background-color:rgb(var(--base)/.72);
+    -webkit-backdrop-filter:saturate(180%) blur(22px);backdrop-filter:saturate(180%) blur(22px);
+  }
+  div.flex.h-full.overflow-hidden>aside>a[aria-label="TV Pro"]{height:auto;padding:0;flex-shrink:0}
+  div.flex.h-full.overflow-hidden>aside>nav{
+    flex:1 1 auto;flex-direction:row;flex-wrap:nowrap;align-items:center;
+    justify-content:flex-start;gap:.25rem;overflow:visible;min-width:0;
+  }
+  /* First 4 links (Home, Live TV, Movies, Series) are the primary capsule pills,
+     centered in the bar; everything after the <span class="flex-1"> spacer
+     (Favorites, Recently watched, Search, Playlists, Settings) rides as compact
+     icon buttons at the end — same links, same functionality, just denser. */
+  div.flex.h-full.overflow-hidden>aside>nav{position:relative}
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4){
+    height:2.5rem !important;border-radius:999px !important;
+    padding-inline:1.25rem !important;justify-content:center;flex-shrink:0;
+    background-color:transparent !important;font-weight:500;
+  }
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4):hover{background-color:rgb(var(--fg)/.08) !important}
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4) span.truncate{
+    position:static !important;width:auto !important;height:auto !important;
+    overflow:visible !important;clip:auto !important;white-space:nowrap !important;
+  }
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4)[aria-current=page]{
+    background-color:#fff !important;color:#0a0a0c !important;font-weight:700;
+  }
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4)[aria-current=page] svg{color:#0a0a0c !important}
+  div.flex.h-full.overflow-hidden>aside>nav>span.flex-1:first-of-type{flex:1 1 auto}
+  div.flex.h-full.overflow-hidden>aside>nav>span.flex-1:first-of-type~a{
+    height:2.25rem !important;width:2.25rem !important;padding-inline:0 !important;
+    border-radius:999px !important;justify-content:center;flex-shrink:0;
+  }
+  div.flex.h-full.overflow-hidden>aside>nav>span.flex-1:first-of-type~a:hover{background-color:rgb(var(--fg)/.08) !important}
+  div.flex.h-full.overflow-hidden>aside>nav>span.flex-1:first-of-type~a span.truncate{display:none}
+  div.flex.h-full.overflow-hidden>aside>nav>span.flex-1:not(:first-of-type){flex:0 0 .5rem}
+}
+@media (min-width:1024px) and (max-width:1365.98px){
+  /* Not enough room for labelled pills + icon rail: fall back to icon-only pills too */
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4) span.truncate{
+    position:absolute !important;width:1px !important;height:1px !important;
+    overflow:hidden !important;clip:rect(0,0,0,0) !important;white-space:nowrap !important;
+  }
+  div.flex.h-full.overflow-hidden>aside>nav>a:nth-child(-n+4){padding-inline:.75rem !important}
+}
+
+/* ---- Header search field: full pill, glassy ---- */
+header.pt-safe button[aria-label=Search],header.pt-safe>div>button.hidden{border-radius:999px}
+header.pt-safe button.hidden.h-10{background-color:rgb(var(--fg)/.06);border-color:transparent}
+header.pt-safe button.hidden.h-10:hover{background-color:rgb(var(--fg)/.1)}
+
+/* ---- Section rhythm: bigger row gaps, tighter eyebrow-to-title spacing ---- */
+main section{margin-bottom:2.25rem}
+
+/* ---- Live TV: capsule category list + glass preview panel ---- */
+main [role=listbox]{border-radius:16px}
+main .rounded-md.border.border-line.bg-surface{border-radius:18px;background-color:rgb(var(--surface)/.7);backdrop-filter:blur(12px)}
+
+/* ---- Movie/series detail hero card ---- */
+main .rounded-md.border.border-line{border-radius:16px}
+
+/* ---- Player chrome: cinematic gradient scrims instead of flat overlays ---- */
+.fixed.inset-0.z-50.bg-black>div.group.bg-black{background:#000}
+.fixed.inset-0.z-50.bg-black [role=alert]{background:radial-gradient(120% 90% at 50% 40%,rgba(30,30,34,.95),rgba(0,0,0,.97))}
+.fixed.inset-0.z-50.bg-black video{background:#000}
+
+/* ---- Mobile floating tab bar: darker glass, closer to the reference ---- */
+.tvx-tabbar{background-color:rgb(var(--base)/.78);-webkit-backdrop-filter:saturate(200%) blur(26px);backdrop-filter:saturate(200%) blur(26px)}
+
+/* ---- Home hero (built by design/tvx.js from TV Pro's own, already-rendered
+        first row item — never fabricated, never a moved React node) ---- */
+.tvx-hero{position:relative;display:block;width:100%;border-radius:20px;overflow:hidden;
+  margin-bottom:1.75rem;aspect-ratio:16/8;min-height:15rem;background:#111;isolation:isolate}
+@media (min-width:1024px){.tvx-hero{aspect-ratio:16/6.2;min-height:19rem}}
+.tvx-hero__media{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.tvx-hero__media[data-fallback]{background:linear-gradient(160deg,hsl(var(--tvx-h,215) 46% 30%),hsl(calc(var(--tvx-h,215) + 36) 56% 12%))}
+.tvx-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(0,0,0,.92) 0%,rgba(0,0,0,.55) 38%,rgba(0,0,0,.05) 70%)}
+.tvx-hero__body{position:absolute;inset-inline:0;bottom:0;z-index:2;padding:1.5rem;display:flex;flex-direction:column;gap:.75rem}
+@media (min-width:1024px){.tvx-hero__body{padding:2.25rem 2.5rem}}
+.tvx-hero__eyebrow{font-size:.75rem;font-weight:600;letter-spacing:.04em;color:rgba(255,255,255,.7);text-transform:uppercase}
+.tvx-hero__title{font-size:1.625rem;line-height:1.1;font-weight:800;color:#fff;max-width:36rem;
+  text-shadow:0 2px 16px rgba(0,0,0,.5)}
+@media (min-width:1024px){.tvx-hero__title{font-size:2.5rem}}
+.tvx-hero__meta{display:flex;align-items:center;gap:.5rem;font-size:.8125rem;color:rgba(255,255,255,.75)}
+.tvx-hero__meta>span{display:inline-flex;align-items:center;height:1.5rem;padding-inline:.625rem;
+  border-radius:999px;background:rgba(255,255,255,.14);backdrop-filter:blur(6px)}
+.tvx-hero__actions{display:flex;align-items:center;gap:.625rem;margin-top:.25rem}
+.tvx-hero__play{display:inline-flex;align-items:center;gap:.5rem;height:2.75rem;padding-inline:1.5rem;
+  border-radius:999px;background:#fff;color:#0a0a0c;font-weight:700;font-size:.9375rem;border:0;cursor:pointer}
+.tvx-hero__play:hover{background:#f0f0f0}
+.tvx-hero__ghost{display:inline-flex;align-items:center;gap:.5rem;height:2.75rem;padding-inline:1.25rem;
+  border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-weight:600;font-size:.9375rem;
+  border:1px solid rgba(255,255,255,.22);cursor:pointer;backdrop-filter:blur(8px)}
+.tvx-hero__ghost:hover{background:rgba(255,255,255,.22)}
+@media (prefers-reduced-motion:no-preference){.tvx-hero{animation:view-in .4s var(--tvx-ease) both}}
