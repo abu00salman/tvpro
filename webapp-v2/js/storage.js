@@ -16,11 +16,15 @@
  *     "tvpro:settings"  JSON  -> { proxyUrl?, ...user prefs } (app's own settings blob; we only READ proxyUrl)
  *     "tvpro:playdiag"  JSON array -> playback diagnostics log (read-only, used by diag.html)
  *
- * This module is read-only and additive: it never writes a different shape into these stores,
- * so it can run side by side with the existing app without risking existing users' saved
- * playlists, favorites or watch history. When the schema is absent (no playlist saved on this
- * device, or a browser with IndexedDB blocked), every function resolves to an empty/null result
- * so callers fall back to the bundled demo dataset (see demo.js) instead of throwing.
+ * Every write this module makes (toggleFavorite/recordHistory/createPlaylist/setActivePlaylist/
+ * deletePlaylist) targets the EXACT real shape above, field for field, reverse-engineered from
+ * the bundle's own corresponding functions (ev/ey/ex/eb, the playlist-creation function, er/en,
+ * eo) rather than invented — see each function's own comment for the specific confirmation.
+ * Nothing here ever defines a competing shape, and every write operates on a real row by its
+ * real id, so it can run side by side with the existing app without risking existing users'
+ * saved playlists, favorites or watch history. When the schema is absent (no playlist saved on
+ * this device, or a browser with IndexedDB blocked), the read paths resolve to an empty/null
+ * result so callers fall back to the bundled demo dataset (see demo.js) instead of throwing.
  */
 (function (global) {
   'use strict';
@@ -99,6 +103,60 @@
       tx.oncomplete = () => resolve(req.result);
       tx.onerror = () => reject(tx.error);
     });
+  }
+
+  function storeDelete(db, store, key) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /** Every saved playlist's own row (id, name, type, counts, createdAt/updatedAt) — enough
+   *  for a playlist-management list without loading each one's full library. */
+  async function listPlaylists() {
+    let db;
+    try { db = await openDb(); } catch (_e) { return []; }
+    try {
+      const [all, activeId] = await Promise.all([storeGet(db, 'playlists'), storeGet(db, 'kv', 'activePlaylist')]);
+      return (all || []).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map((p) => ({ ...p, active: p.id === activeId }));
+    } catch (_e) { return []; }
+  }
+
+  /** Switches the active playlist by writing kv["activePlaylist"] = id — this one write is
+   *  the entire persisted effect of the bundle's own playlist-switch function (`en()`); the
+   *  rest of what it does is in-memory React state this static page doesn't have, since
+   *  every webapp-v2 page re-reads the active library fresh on load anyway. Only ever called
+   *  with an id already present in the real "playlists" store. */
+  async function setActivePlaylist(id) {
+    const db = await openDb();
+    await storePut(db, 'kv', id, 'activePlaylist');
+  }
+
+  /** Deletes one real playlist by its real id: its "playlists" row, its "libraries" row, and
+   *  its stale "epg:<id>" cache entry if any — the exact same three deletes the bundle's own
+   *  delete function (`eo()`) performs, no more and no less. Like the bundle itself, this does
+   *  NOT delete that playlist's "favorites:<id>"/"history:<id>" kv entries (the shipped app
+   *  leaves those as orphaned-but-harmless keys too), so this is not a partial/incomplete
+   *  cleanup — it is the same behavior the real app already has. If the deleted playlist was
+   *  active, switches to another remaining one (closer to the bundle's own eo(), which does
+   *  the same); if none remain, leaves kv["activePlaylist"] pointing at the now-deleted id,
+   *  which every read path here already treats as "no match -> fall back to the first
+   *  remaining playlist, or demo data if none" (see loadActiveLibrary above). */
+  async function deletePlaylist(id) {
+    const db = await openDb();
+    const activeId = await storeGet(db, 'kv', 'activePlaylist');
+    await Promise.all([
+      storeDelete(db, 'playlists', id),
+      storeDelete(db, 'libraries', id),
+      storeDelete(db, 'kv', 'epg:' + id),
+    ]);
+    if (activeId === id) {
+      const remaining = await storeGet(db, 'playlists');
+      if (remaining && remaining.length) await setActivePlaylist(remaining[0].id);
+    }
   }
 
   /** The exact favorites-key convention the shipped app uses (reverse-engineered from the
@@ -210,6 +268,6 @@
 
   global.TvproStorage = {
     loadActiveLibrary, readSettings, favoriteKey, toggleFavorite, recordHistory,
-    createPlaylist, getOrCreateVaultKey,
+    createPlaylist, getOrCreateVaultKey, listPlaylists, setActivePlaylist, deletePlaylist,
   };
 })(window);

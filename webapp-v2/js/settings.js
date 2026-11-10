@@ -10,6 +10,40 @@
     el.textContent = text;
   }
 
+  function fmtCounts(counts) {
+    return counts.channels + ' channels · ' + counts.movies + ' movies · ' + counts.series + ' series';
+  }
+
+  async function renderPlaylists() {
+    const listEl = document.getElementById('playlistList');
+    const playlists = await TvproStorage.listPlaylists();
+    if (!playlists.length) {
+      listEl.innerHTML = '<p class="eyebrow">' + TvproI18n.t('demo.badge') + '</p>';
+      return;
+    }
+    listEl.innerHTML = '';
+    playlists.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'settings-card';
+      row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.gap = '1rem'; row.style.marginBottom = '.75rem';
+      row.innerHTML =
+        '<div style="flex:1">' +
+        '  <div style="font-weight:700">' + p.name + (p.active ? ' <span style="color:rgb(var(--accent));font-size:.8125rem;font-weight:600">● active</span>' : '') + '</div>' +
+        '  <div class="eyebrow" style="padding:0">' + p.type + ' · ' + fmtCounts(p.counts || { channels: 0, movies: 0, series: 0 }) + '</div>' +
+        '</div>' +
+        (p.active ? '' : '<button type="button" class="filter-select" data-action="switch">Switch</button>') +
+        '<button type="button" class="filter-select" data-action="delete" style="color:rgb(var(--live))">Delete</button>';
+      const switchBtn = row.querySelector('[data-action="switch"]');
+      if (switchBtn) switchBtn.addEventListener('click', async () => { await TvproStorage.setActivePlaylist(p.id); location.href = 'index.html'; });
+      row.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+        if (!confirm('Delete "' + p.name + '"? This removes it from this device only.')) return;
+        await TvproStorage.deletePlaylist(p.id);
+        await renderPlaylists();
+      });
+      listEl.appendChild(row);
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
     const t = TvproI18n.t;
     const library = await TvproApp.getLibrary();
@@ -21,6 +55,7 @@
     } else {
       currentEl.textContent = t('demo.badge');
     }
+    await renderPlaylists();
 
     const typeSel = document.getElementById('plType');
     const xtreamFields = document.getElementById('xtreamFields');
@@ -62,11 +97,12 @@
           const text = await res.text();
           if (!/#EXTM3U|#EXTINF/i.test(text.slice(0, 4096))) throw new Error('not-m3u');
           const lib = TvproPlaylistImport.parseM3U(text);
-          if (!lib.channels.length) throw new Error('empty');
+          if (!lib.channels.length && !lib.movies.length && !lib.series.length) throw new Error('empty');
           result = await TvproStorage.createPlaylist({ type: 'm3u-url', name, secretPlain: { type: 'm3u-url', url }, ...lib });
         }
         statusBox(statusEl, 'ok', 'Added "' + result.playlist.name + '" (' + result.playlist.counts.channels + ' channels, ' +
           result.playlist.counts.movies + ' movies, ' + result.playlist.counts.series + ' series). Reloading…');
+        await renderPlaylists();
         setTimeout(() => { location.href = 'index.html'; }, 1200);
       } catch (err) {
         const msg = err && err.message === 'missing-fields' ? 'Please fill in every field.'

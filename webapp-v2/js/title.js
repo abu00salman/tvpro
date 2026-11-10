@@ -107,7 +107,9 @@
             '<span class="episode-row__num">' + ep.number + '</span>' +
             '<span style="flex:1"><div class="episode-row__title">' + (ep.title || t('title.episode') + ' ' + ep.number) + '</div>' +
             (ep.duration ? '<div class="episode-row__meta">' + fmtDuration(ep.duration) + '</div>' : '') + '</span>';
-          row.addEventListener('click', () => TvproApp.openPlayer({ ...item, name: item.name + ' — ' + t('title.episode') + ' ' + ep.number, xt: ep.xt }, library));
+          // ep.xt (Xtream) or ep.url (M3U-imported series, see playlist-import.js) — whichever
+          // this episode actually carries; app.js's buildStreamUrl() checks .url first.
+          row.addEventListener('click', () => TvproApp.openPlayer({ ...item, name: item.name + ' — ' + t('title.episode') + ' ' + ep.number, xt: ep.xt, url: ep.url }, library));
           block.appendChild(row);
         });
         seasonsWrap.appendChild(block);
