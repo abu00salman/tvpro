@@ -51,7 +51,7 @@
     function run() {
       const q = input.value;
       const myGen = ++generation;
-      if (!q.trim()) { resultsEl.innerHTML = ''; return; }
+      if (!q.trim()) { resultsEl.className = ''; resultsEl.innerHTML = stateHtml('search.prompt'); return; }
       resultsEl.innerHTML = stateHtml('search.loading');
       // Simulated async boundary (debounce already delayed this call) so a slower future
       // real-network search can drop straight into this same generation-guarded path.
@@ -74,6 +74,6 @@
     input.addEventListener('input', () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(run, 220); });
 
     const params = new URLSearchParams(location.search);
-    if (params.get('q')) { input.value = params.get('q'); run(); }
+    if (params.get('q')) { input.value = params.get('q'); run(); } else { resultsEl.innerHTML = stateHtml('search.prompt'); }
   });
 })(window);

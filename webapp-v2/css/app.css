@@ -262,11 +262,21 @@ html[dir="rtl"] .settings-panel { transform: translateX(-100%); }
 .settings-form { max-width: 32rem; display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; }
 .settings-form label { display: flex; flex-direction: column; gap: .375rem; font-size: .875rem; font-weight: 600; }
 .settings-form input, .settings-form select {
-  height: 2.75rem; padding-inline: .875rem; border-radius: 12px; border: 1px solid var(--line);
+  width: 100%; height: 2.75rem; padding-inline: .875rem; border-radius: 12px; border: 1px solid var(--line);
   background: rgb(var(--fg) / .04); color: rgb(var(--fg)); font-size: .9375rem; font-weight: 400;
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
 }
 .settings-form input:focus, .settings-form select:focus { border-color: rgb(var(--accent)); background: rgb(var(--surface)); outline: none; }
 .settings-card { background: rgb(var(--surface)); border: 1px solid var(--line); border-radius: 16px; padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: var(--shadow); }
 .settings-error { color: rgb(var(--live)); }
+/* A solid accent-colored action button for use on ordinary (non-hero, non-dark-image) surfaces
+ * — .hero-play/.hero-ghost are white/translucent and only read correctly over the dark hero
+ * image, so they're not reused here. */
+.btn-primary {
+  display: inline-flex; align-items: center; gap: .5rem; height: 2.75rem; padding-inline: 1.5rem; border-radius: 999px;
+  font-weight: 700; font-size: .9375rem; border: 0; cursor: pointer; background: rgb(var(--accent)); color: #fff;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

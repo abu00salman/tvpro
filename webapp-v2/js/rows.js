@@ -26,15 +26,23 @@
     poster.className = 'card__poster';
     poster.style.setProperty('--h', item.hue != null ? item.hue : 215);
     const src = posterUrl(item);
-    if (src) {
-      const img = document.createElement('img');
-      img.src = src; img.alt = ''; img.loading = 'lazy';
-      poster.appendChild(img);
-    } else {
+    function showFallback() {
+      poster.innerHTML = '';
       poster.setAttribute('data-fallback', '1');
       const span = document.createElement('span');
       span.textContent = item.name;
       poster.appendChild(span);
+    }
+    if (src) {
+      const img = document.createElement('img');
+      img.src = src; img.alt = ''; img.loading = 'lazy';
+      // A real poster/logo is proxied through a gateway that isn't guaranteed reachable (see
+      // posterUrl() above); fall back to the same name-on-gradient placeholder demo items use
+      // rather than leaving a broken-image icon.
+      img.addEventListener('error', showFallback, { once: true });
+      poster.appendChild(img);
+    } else {
+      showFallback();
     }
     if (item.kind === 'channel') { const badge = document.createElement('span'); badge.className = 'card__live-badge'; badge.textContent = 'LIVE'; poster.appendChild(badge); }
     btn.appendChild(poster);

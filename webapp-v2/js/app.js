@@ -28,6 +28,12 @@
     btn.addEventListener('click', () => {
       const next = (global.TvproI18n.currentLocale() === 'ar') ? 'en' : 'ar';
       global.TvproI18n.setLocale(next);
+      // setLocale() only re-renders elements tagged [data-i18n]; a lot of this app's text
+      // (filter capsules, hero/row headings, search tabs, settings playlist list…) is built
+      // dynamically by each page's own script and isn't tagged. Reloading is the simplest way
+      // to guarantee every string — tagged or not — comes back in the new language, rather
+      // than leaving a half-translated page until the next navigation.
+      location.reload();
     });
   }
 

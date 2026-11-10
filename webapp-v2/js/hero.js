@@ -13,17 +13,23 @@
     slide.className = 'hero-slide';
     slide.style.setProperty('--h', item.hue != null ? item.hue : 215);
 
+    function appendFallback() {
+      const fallback = document.createElement('div');
+      fallback.className = 'hero-slide__media';
+      fallback.setAttribute('data-fallback', '1');
+      slide.appendChild(fallback);
+    }
     const src = global.TvproRows ? global.TvproRows.posterUrl(item) : item.logo;
     if (src) {
       const img = document.createElement('img');
       img.className = 'hero-slide__media';
       img.src = src; img.alt = ''; img.setAttribute('aria-hidden', 'true'); img.draggable = false;
+      // Same reasoning as rows.js's card(): a real backdrop is proxied and not guaranteed
+      // reachable, so fall back to the gradient panel instead of a broken-image icon.
+      img.addEventListener('error', () => { img.remove(); appendFallback(); }, { once: true });
       slide.appendChild(img);
     } else {
-      const fallback = document.createElement('div');
-      fallback.className = 'hero-slide__media';
-      fallback.setAttribute('data-fallback', '1');
-      slide.appendChild(fallback);
+      appendFallback();
     }
 
     const body = document.createElement('div');

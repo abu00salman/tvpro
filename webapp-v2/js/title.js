@@ -53,7 +53,7 @@
     hero.style.setProperty('--h', item.hue != null ? item.hue : 215);
     hero.innerHTML =
       '<button type="button" class="icon-btn title-back" data-action="back" aria-label="' + t('title.back') + '" style="background:rgba(0,0,0,.4);color:#fff">&#8592;</button>' +
-      (posterSrc ? '<img class="title-hero__media" src="' + posterSrc + '" alt="">' : '<div class="title-hero__media" data-fallback="1"></div>');
+      (posterSrc ? '<img class="title-hero__media" src="' + posterSrc + '" alt="" onerror="this.outerHTML=\'<div class=&quot;title-hero__media&quot; data-fallback=&quot;1&quot;></div>\'">' : '<div class="title-hero__media" data-fallback="1"></div>');
 
     const body = document.createElement('div');
     body.className = 'title-hero__body';

@@ -73,12 +73,17 @@
     const searchEl = document.getElementById('guideSearch');
 
     const library = await TvproApp.getLibrary();
+    TvproApp.renderDemoBanner(document.getElementById('main'), library.source);
     if (library.source === 'demo') {
-      statusEl.textContent = TvproI18n.t('demo.badge');
+      statusEl.textContent = '';
       return;
     }
     if (!library.secret || library.secret.type !== 'xtream') {
-      statusEl.textContent = 'EPG currently works only with Xtream Codes sources (an M3U source does not carry enough data to match channels).';
+      const notice = document.createElement('div');
+      notice.className = 'demo-banner';
+      notice.innerHTML = '<span>&#9432;</span><span>EPG currently works only with Xtream Codes sources (an M3U source does not carry enough data to match channels).</span>';
+      document.getElementById('main').prepend(notice);
+      statusEl.textContent = '';
       return;
     }
     const channels = (library.channels || []).filter((c) => c.xt).sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
