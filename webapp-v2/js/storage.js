@@ -135,5 +135,81 @@
     return next;
   }
 
-  global.TvproStorage = { loadActiveLibrary, readSettings, favoriteKey, toggleFavorite, recordHistory };
+  const VAULT_KEY = 'vault:key';
+  let vaultKeyPromise = null;
+  /** Mirrors the bundle's own `c()`: returns the existing non-extractable AES-GCM-256 vault
+   *  key from kv["vault:key"], or creates one the first time (same algorithm/params/usages
+   *  the shipped app itself uses), so a playlist added here decrypts correctly in the real
+   *  app and vice versa. */
+  function getOrCreateVaultKey() {
+    if (vaultKeyPromise) return vaultKeyPromise;
+    vaultKeyPromise = (async () => {
+      const db = await openDb();
+      const existing = await storeGet(db, 'kv', VAULT_KEY);
+      if (existing) return existing;
+      const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      await storePut(db, 'kv', key, VAULT_KEY);
+      return key;
+    })();
+    return vaultKeyPromise;
+  }
+
+  /** Mirrors the bundle's own secret-encryption function `d()` exactly: random 12-byte IV,
+   *  AES-GCM encrypt of JSON.stringify(plain), returned as {iv, data} (both ArrayBuffers) —
+   *  the same envelope decryptSecret() above already reads. */
+  async function encryptSecret(plain) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await getOrCreateVaultKey(), new TextEncoder().encode(JSON.stringify(plain)));
+    return { iv: iv.buffer, data };
+  }
+
+  /** Creates a new playlist, in the EXACT real shape (see module header): a "playlists" row
+   *  {id, type, name, createdAt, updatedAt, epgUrl, counts, secret}, a "libraries" row
+   *  {playlistId, channels, movies, series}, and sets kv["activePlaylist"] to the new id —
+   *  reproduced from the bundle's own playlist-creation function, field for field. `secretPlain`
+   *  is the not-yet-encrypted credential object ({type:'xtream', server, username, password} or
+   *  {type:'m3u-url', url}), or undefined for a local file import (not supported by this UI).
+   *  This always creates a NEW row: it can only add a playlist, never overwrite or corrupt an
+   *  existing one. */
+  /** Opens "tvpro", creating the schema if this is a fresh browser the real app has never
+   *  opened yet — using the EXACT store definitions the bundle's own onupgradeneeded creates
+   *  (playlists keyPath "id", libraries keyPath "playlistId", kv with no keyPath), so a
+   *  playlist added here is structurally identical whether or not the real app opened the DB
+   *  first. Only createPlaylist() uses this; every read path above stays conservative
+   *  (openDb()) and treats a missing DB as "no data" rather than creating one. */
+  function openDbForWrite() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('tvpro', 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains('playlists')) d.createObjectStore('playlists', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('libraries')) d.createObjectStore('libraries', { keyPath: 'playlistId' });
+        if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('idb-open-failed'));
+    });
+  }
+
+  async function createPlaylist({ type, name, epgUrl, secretPlain, channels, movies, series }) {
+    const db = await openDbForWrite();
+    const id = ('randomUUID' in crypto) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    const now = Date.now();
+    const playlist = {
+      id, type, name: (name || 'My playlist').slice(0, 60), createdAt: now, updatedAt: now,
+      epgUrl: epgUrl || undefined,
+      counts: { channels: channels.length, movies: movies.length, series: series.length },
+      secret: secretPlain ? await encryptSecret(secretPlain) : undefined,
+    };
+    const library = { playlistId: id, channels, movies, series };
+    await storePut(db, 'playlists', playlist);
+    await storePut(db, 'libraries', library);
+    await storePut(db, 'kv', id, 'activePlaylist');
+    return { playlist, library };
+  }
+
+  global.TvproStorage = {
+    loadActiveLibrary, readSettings, favoriteKey, toggleFavorite, recordHistory,
+    createPlaylist, getOrCreateVaultKey,
+  };
 })(window);

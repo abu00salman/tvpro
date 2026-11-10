@@ -165,6 +165,9 @@
   }
 
   function buildStreamUrl(item, secret) {
+    // M3U-sourced items carry their own direct URL (same convention as diag.html's
+    // channelUrl()) — no credentials to assemble, the URL is already playable as-is.
+    if (item.url) return item.url;
     if (!secret || secret.type !== 'xtream' || !item.xt) return null;
     const origin = (() => { try { const t = secret.server.trim(); return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : 'http://' + t).origin; } catch (_e) { return secret.server; } })();
     return origin + '/' + item.xt.kind + '/' + encodeURIComponent(secret.username) + '/' + encodeURIComponent(secret.password) + '/' + item.xt.id + '.' + item.xt.ext;
